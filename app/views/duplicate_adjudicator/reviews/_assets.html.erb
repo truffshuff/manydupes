@@ -1,0 +1,5 @@
+<% content_for :head do %>
+  <%= tag.meta name: "turbo-visit-control", content: "reload" %>
+  <%= tag.link rel: "stylesheet", href: asset_url("theme.css") %>
+  <%= javascript_include_tag asset_url("review.js"), defer: true, nonce: true %>
+<% end %>

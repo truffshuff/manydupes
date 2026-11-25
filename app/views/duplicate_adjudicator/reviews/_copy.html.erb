@@ -1,0 +1,55 @@
+<article class="da-panel da-copy">
+  <p class="da-muted"><%= side %></p>
+  <h2><%= file.filename %></h2>
+  <p><%= link_to file.model.name, core_routes.model_path(file.model) %></p>
+  <p class="da-path"><%= file.model.library.name %> / <%= copy.indexed_path %></p>
+
+  <% if file.has_render? %>
+    <% format = file.attachment_attacher.derivatives[:render].extension.presence || "png" %>
+    <%= image_tag native_file_url(file, derivative: "render", format: format),
+      loading: "lazy", alt: "Preview of #{file.filename}", class: "da-preview" %>
+  <% elsif file.is_image? %>
+    <%= image_tag native_file_url(file, format: file.extension),
+      loading: "lazy", alt: "Preview of #{file.filename}", class: "da-preview" %>
+  <% elsif file.is_3d_model? || file.is_slicer_file? %>
+    <details class="da-render" data-preview>
+      <summary>Load 3D preview</summary>
+      <template><iframe data-preview-url="<%= native_file_url(file, embed: "true") %>" title="3D preview of <%= file.filename %>"></iframe></template>
+      <noscript><%= link_to "Open 3D preview", native_file_url(file, embed: "true") %></noscript>
+    </details>
+  <% end %>
+
+  <dl class="da-facts">
+    <div><dt>Indexed size</dt><dd><%= number_to_human_size(copy.size) %></dd></div>
+    <div><dt>Other files in model</dt><dd><%= [@model_file_counts.fetch(copy.model_id, 1) - 1, 0].max %></dd></div>
+  </dl>
+
+  <% roles = roles_for(copy, file) %>
+  <% if roles.any? %>
+    <ul class="da-badges" aria-label="File roles">
+      <% roles.each do |role| %>
+        <li class="da-pill"><%= role %></li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <div class="da-actions">
+    <%= link_to "Open file", native_file_url(file), class: "btn btn-outline-secondary" %>
+    <% if copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
+      <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "btn btn-outline-primary" %>
+    <% else %>
+      <small class="da-muted">Verification limit is 64 MiB.</small>
+    <% end %>
+  </div>
+
+  <% if @verification&.fetch(:id) == file.id %>
+    <% messages = {
+      verified: "Verified. The stored file matches the indexed checksum.",
+      different: "Checksum differs. The stored file has changed since it was indexed.",
+      missing: "The file is missing from its indexed storage location.",
+      too_large: "The stored file exceeds the 64 MiB verification limit.",
+      unavailable: "Manyfold could not read the stored attachment."
+    } %>
+    <p class="da-note" role="status"><%= messages.fetch(@verification.fetch(:result)) %></p>
+  <% end %>
+</article>

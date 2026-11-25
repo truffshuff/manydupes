@@ -1,0 +1,114 @@
+<%= render "assets" %>
+
+<div class="da" data-turbo="false" data-review-namespace="<%= review_namespace %>"
+     data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>">
+  <nav class="da-breadcrumb" aria-label="Duplicate review navigation">
+    <%= link_to "Duplicate queue", queue_url %>
+  </nav>
+
+  <header class="da-header">
+    <h1>Compare duplicate files</h1>
+    <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
+      across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
+    <details class="da-checksum">
+      <summary>Recorded SHA-512 checksum</summary>
+      <code><%= @digest %></code>
+    </details>
+  </header>
+
+  <% if @snapshot.path_counts.values.any? { |count| count > 1 } %>
+    <p class="da-note">Some records point to the same indexed storage path. Treat those records as one location when choosing a copy.</p>
+  <% end %>
+
+    <% choices = @compare_copies.map do |copy|
+    library = @records.fetch(copy.id).model.library
+    ["#{library.name} / #{copy.indexed_path} (#{copy.name})", copy.public_id]
+  end %>
+
+  <%= form_with url: group_url(@digest, library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters" do %>
+    <%= hidden_field_tag :library, @library.public_id if @library %>
+    <%= hidden_field_tag :q, @search if @search.present? %>
+    <%= hidden_field_tag :after, @after if @after %>
+    <%= hidden_field_tag :copies, @page %>
+    <div>
+      <%= label_tag :left, "Left copy" %>
+      <%= select_tag :left, options_for_select(choices, @left.public_id), class: "form-select" %>
+    </div>
+    <div>
+      <%= label_tag :right, "Right copy" %>
+      <%= select_tag :right, options_for_select(choices, @right.public_id), class: "form-select" %>
+    </div>
+    <%= submit_tag "Compare", class: "btn btn-outline-primary" %>
+  <% end %>
+
+  <div class="da-compare">
+    <%= render "copy", file: @left, copy: @copy_by_id.fetch(@left.id), side: "Left copy" %>
+    <%= render "copy", file: @right, copy: @copy_by_id.fetch(@right.id), side: "Right copy" %>
+  </div>
+
+  <section class="da-panel da-decision" data-decision-panel hidden>
+    <h2>Review decision</h2>
+    <p class="da-muted">Decisions are saved in this browser for your account. Files and Manyfold warnings stay in place.</p>
+    <form data-decision-form>
+      <div class="da-actions da-decision-inputs">
+        <div>
+          <label for="da-preferred">Preferred copy</label>
+          <select id="da-preferred" class="form-select">
+            <option value="">Choose a copy</option>
+            <%= options_for_select(choices) %>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Save preference</button>
+      </div>
+      <div class="da-actions">
+        <button type="button" data-decision="keep" class="btn btn-outline-secondary">Keep all copies</button>
+        <button type="button" data-decision="later" class="btn btn-outline-secondary">Review later</button>
+        <button type="button" data-clear-decision class="btn btn-link" hidden>Clear decision</button>
+      </div>
+    </form>
+    <p data-decision-status role="status"></p>
+  </section>
+  <noscript><p class="da-note">Enable JavaScript to save decisions in this browser.</p></noscript>
+
+  <section class="da-panel da-table-wrap">
+    <h2>Indexed copies</h2>
+    <table class="da-table">
+      <thead><tr><th scope="col">Library and path</th><th scope="col">Role</th><th scope="col">Open</th></tr></thead>
+      <tbody>
+        <% @copies.each do |copy| %>
+          <% file = @records.fetch(copy.id) %>
+          <tr>
+            <th scope="row">
+              <span class="da-file-link"><%= copy.indexed_path %></span>
+              <span class="da-muted"><%= file.model.library.name %></span>
+            </th>
+            <td>
+              <% roles = roles_for(copy, file) %>
+              <%= roles.any? ? roles.join(" · ") : "—" %>
+            </td>
+            <td><%= link_to "File", native_file_url(file), aria: {label: "Open file #{copy.indexed_path}"} %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </section>
+
+  <% if @total_pages > 1 %>
+    <nav aria-label="Indexed copies pages" class="da-actions">
+      <% compare = {left: @left.public_id, right: @right.public_id} %>
+      <% if @page > 1 %>
+        <%= link_to "Previous copies", group_url(@digest, **compare, copies: @page - 1), class: "btn btn-outline-secondary" %>
+      <% end %>
+      <span>Page <%= @page %> of <%= @total_pages %></span>
+      <% if @page < @total_pages %>
+        <%= link_to "More copies", group_url(@digest, **compare, copies: @page + 1), class: "btn btn-outline-secondary" %>
+      <% end %>
+    </nav>
+  <% end %>
+  <nav aria-label="Continue review" class="da-actions">
+    <%= link_to "Back to queue", queue_url, class: "btn btn-outline-secondary" %>
+    <% if @next_group %>
+      <%= link_to "Next group", group_url(@next_group.digest), class: "btn btn-primary" %>
+    <% end %>
+  </nav>
+</div>
