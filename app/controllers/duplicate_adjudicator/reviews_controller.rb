@@ -5,6 +5,8 @@ require "set"
 
 module DuplicateAdjudicator
   class ReviewsController < ::ApplicationController
+    QUEUE_REFILL_SIZE = 96
+
     # This GET serves a fixed script from the plugin package. Verification POSTs use Rails CSRF protection.
     skip_forgery_protection only: :script
 
@@ -18,10 +20,14 @@ module DuplicateAdjudicator
     def index
       @title = "Duplicate Adjudicator"
       set_filters
-      rows = inventory.groups(library_id: @library&.id, search: @search, after: @after)
-      @groups = rows.first(Index::GROUPS_PER_PAGE)
+      refill = params[:refill] == "1" && @review_view.nil?
+      @queue_entry_after = refill ? checksum(params[:queue_after]) : @after
+      size = refill ? QUEUE_REFILL_SIZE : Index::GROUPS_PER_PAGE
+      rows = inventory.groups(library_id: @library&.id, search: @search, after: @after, limit: size + 1)
+      @groups = rows.first(size)
       load_queue_review
-      @next_page = @groups.last.digest if rows.size > Index::GROUPS_PER_PAGE && @groups.any?
+      @next_page = @groups.last.digest if rows.size > size && @groups.any?
+      render partial: "queue_refill", layout: false if refill
     end
 
     def show

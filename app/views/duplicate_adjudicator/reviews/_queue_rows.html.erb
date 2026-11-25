@@ -1,0 +1,25 @@
+<% @groups.each do |group| %>
+  <% label = @queue_review[group.digest] %>
+  <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest, after: @queue_entry_after) %>"
+      data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>" data-copy-progress="<%= @queue_copy_progress[group.digest].to_json %>"
+      <%= "hidden" if @review_view.nil? && label %>>
+    <summary>
+      <span class="da-group-name">
+        <strong><%= group.example.filename %></strong>
+        <span class="da-muted"><%= group.example.model.library.name %> / <%= group.example.model.path %></span>
+      </span>
+      <span class="da-group-count"><%= pluralize(group.count, "copy") %> in <%= pluralize(group.model_count, "model") %></span>
+      <span class="da-group-action">
+        <span class="da-muted" data-queue-status <%= "hidden" unless label %>><%= label %></span>
+        <span class="da-when-closed" data-open-label><%= label ? "Open comparison" : "Open for review" %></span>
+        <span class="da-when-open">Collapse</span>
+      </span>
+    </summary>
+    <div class="da-group-content">
+      <p class="da-load-status" data-load-status role="status" hidden></p>
+      <button class="da-button" type="button" data-retry hidden>Retry comparison</button>
+      <div data-group-content></div>
+      <p class="da-full-link"><%= link_to "Open comparison on its own page", group_url(group.digest, after: @queue_entry_after) %></p>
+    </div>
+  </details>
+<% end %>

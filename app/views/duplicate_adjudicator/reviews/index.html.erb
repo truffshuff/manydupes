@@ -40,36 +40,22 @@
         <p><%= @after ? "You’ve reached the end of these results." : "No files with duplicate indexed checksums match these filters." %></p>
       </div>
     <% else %>
-      <div class="da-queue" aria-label="Duplicate checksum groups">
-        <% @groups.each do |group| %>
-          <% label = @queue_review[group.digest] %>
-          <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest) %>"
-              data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>" data-copy-progress="<%= @queue_copy_progress[group.digest].to_json %>"
-              <%= "hidden" if @review_view.nil? && label %>>
-            <summary>
-              <span class="da-group-name">
-                <strong><%= group.example.filename %></strong>
-                <span class="da-muted"><%= group.example.model.library.name %> / <%= group.example.model.path %></span>
-              </span>
-              <span class="da-group-count"><%= pluralize(group.count, "copy") %> in <%= pluralize(group.model_count, "model") %></span>
-              <span class="da-group-action">
-                <span class="da-muted" data-queue-status <%= "hidden" unless label %>><%= label %></span>
-                <span class="da-when-closed" data-open-label><%= label ? "Open comparison" : "Open for review" %></span>
-                <span class="da-when-open">Collapse</span>
-              </span>
-            </summary>
-            <div class="da-group-content">
-              <p class="da-load-status" data-load-status role="status" hidden></p>
-              <button class="da-button" type="button" data-retry hidden>Retry comparison</button>
-              <div data-group-content></div>
-              <p class="da-full-link"><%= link_to "Open comparison on its own page", group_url(group.digest) %></p>
-            </div>
-          </details>
-        <% end %>
+      <div class="da-queue" aria-label="Duplicate checksum groups" data-review-queue
+        data-page-size="<%= DuplicateAdjudicator::Index::GROUPS_PER_PAGE %>" data-next-after="<%= @next_page %>"
+        data-page-url="<%= queue_url(after: nil) %>"
+        data-refill-url="<%= queue_url(after: nil, refill: "1", queue_after: @after) if @review_view.nil? %>">
+        <%= render "queue_rows" %>
       </div>
-      <p class="da-panel da-muted" data-queue-empty <%= "hidden" unless @review_view.nil? && @groups.all? { |group| @queue_review[group.digest] } %>>
-        No groups on this page need review. <%= link_to "Show all groups", queue_url(review: "all") %>
-      </p>
+      <% if @review_view.nil? %>
+        <p class="da-load-status" data-queue-loading role="status" hidden>Loading more groups to review…</p>
+        <div class="da-actions" data-queue-error hidden>
+          <p class="da-muted" role="status">Could not load more review groups.</p>
+          <button type="button" class="da-button" data-queue-retry>Retry loading groups</button>
+        </div>
+        <p class="da-panel da-muted" data-queue-empty <%= "hidden" if @next_page || @groups.any? { |group| !@queue_review[group.digest] } %>>
+          No more groups need review. <%= link_to "Show all groups", queue_url(review: "all") %>
+        </p>
+      <% end %>
     <% end %>
 
     <% if @after || @next_page %>
@@ -78,7 +64,8 @@
           <%= link_to "First page", queue_url(after: nil), class: "da-button" %>
         <% end %>
         <% if @next_page %>
-          <%= link_to "Next page", queue_url(after: @next_page), class: "da-button da-primary" %>
+          <%= link_to "Next page", queue_url(after: @next_page), class: "da-button da-primary",
+            data: {queue_next: true} %>
         <% end %>
       </nav>
     <% end %>
