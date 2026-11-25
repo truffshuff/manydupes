@@ -1,4 +1,6 @@
-<section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>">
+<section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>"
+    data-copy-progress="<%= @group_copy_progress.to_json %>"
+    <% if @warning_receipt %>data-warning-receipt="<%= @warning_receipt.to_json %>"<% end %>>
   <div class="da-comparison-heading">
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
@@ -11,6 +13,8 @@
   <% if @snapshot.path_counts.values.any? { |count| count > 1 } %>
     <p class="da-note">Some records point to the same indexed storage path. Treat those records as one location when choosing a copy.</p>
   <% end %>
+
+  <%= render "warnings" %>
 
   <% choices = @compare_copies.map do |copy|
     library = @records.fetch(copy.id).model.library
@@ -81,7 +85,6 @@
   </section>
   <noscript><p class="da-note">Enable JavaScript to save decisions in this browser.</p></noscript>
 
-  <%= render "warnings" %>
   <%= render "storage" %>
 
 </section>

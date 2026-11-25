@@ -1,4 +1,5 @@
-<article class="da-panel da-copy" data-copy-id="<%= copy.public_id %>" data-copy-side="<%= side %>">
+<% warning_state = @warning_states[copy.id] %>
+<article class="da-panel da-copy" data-copy-id="<%= copy.public_id %>" data-copy-side="<%= side %>" data-warning-state="<%= warning_state %>">
   <% if side %>
     <p class="da-copy-side"><%= side %></p>
   <% end %>
@@ -47,6 +48,23 @@
       <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "da-button", form: {data: {inline_form: true}} %>
     <% else %>
       <small class="da-muted">Verification limit is 64 MiB.</small>
+    <% end %>
+  </div>
+
+  <div class="da-actions da-copy-review">
+    <% statuses = {
+      "acknowledged" => "Manyfold warning acknowledged",
+      "open" => "Manyfold warning open",
+      "in_progress" => "Manyfold warning in progress"
+    } %>
+    <p class="da-muted" data-copy-warning-status><%= statuses.fetch(warning_state, "No Manyfold warning") %></p>
+    <% unless SiteSettings.demo_mode_enabled? || warning_state == "in_progress" %>
+      <% [["acknowledge", "Acknowledge copy", warning_state == "acknowledged"],
+           ["reopen", "Reopen copy", warning_state != "acknowledged"]].each do |action, label, hide| %>
+        <%= button_to label, group_action_url("warnings"),
+          params: {warning_action: action, fingerprint: @snapshot.fingerprint, copy: copy.public_id},
+          class: "da-button", form: {data: {inline_form: true, copy_warning_action: action}, hidden: hide} %>
+      <% end %>
     <% end %>
   </div>
 

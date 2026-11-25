@@ -101,24 +101,37 @@ module DuplicateAdjudicator
       return head :bad_request unless %w[acknowledge reopen].include?(action)
 
       ignore = action == "acknowledge"
-      changed = ::ModelFile.transaction do
+      outcome = ::ModelFile.transaction do
         current = inventory.snapshot(@digest, lock: true)
-        if current.fingerprint != params[:fingerprint]
-          next :stale
+        next :stale unless current.fingerprint == params[:fingerprint]
+
+        targets = current.copies
+        if params.key?(:copy)
+          targets = targets.select { |copy| copy.public_id == params[:copy] }
+          next :missing if targets.empty?
         end
 
-        problems = group_warnings(current).where(ignored: !ignore, in_progress: false).order(:id).lock.to_a
-        problems.each { |problem| authorize problem, :update? }
-        problems.each { |problem| problem.update!(ignored: ignore) }
-        problems.length
+        warnings = group_warnings(current).where(problematic_id: targets.map(&:id)).order(:id).lock.to_a
+        changed = warnings.select { |warning| !warning.in_progress && warning.ignored != ignore }
+        changed.each { |warning| authorize warning, :update? }
+        changed.each { |warning| warning.update!(ignored: ignore) }
+
+        warned_ids = warnings.map(&:problematic_id).to_set
+        browser_targets = ignore ? targets.reject { |copy| warned_ids.include?(copy.id) } : targets
+        [changed.length, browser_targets.map(&:public_id)]
       end
-      if changed == :stale
+      if outcome == :stale
         return render plain: "The indexed copies changed. Reload this comparison and review them again.", status: :conflict
       end
+      return head :not_found if outcome == :missing
 
+      changed, copy_ids = outcome
+      @warning_receipt = {action: action, copies: copy_ids}
       load_warning_counts
-      @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
-        "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
+      if changed.positive? || copy_ids.empty?
+        @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
+          "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
+      end
       render_comparison
     end
 
@@ -305,13 +318,35 @@ module DuplicateAdjudicator
     def load_queue_review
       @queue_snapshots = inventory.snapshots(@groups.map(&:digest))
       copy_ids = @queue_snapshots.values.flat_map { |snapshot| snapshot.copies.map(&:id) }
-      acknowledged = duplicate_warnings.where(problematic_id: copy_ids, ignored: true, in_progress: false)
-        .pluck(:problematic_id).to_set
-
+      states = warning_states(duplicate_warnings.where(problematic_id: copy_ids))
+      @queue_copy_progress = @queue_snapshots.transform_values { |snapshot| copy_progress(snapshot, states) }
       @queue_review = @queue_snapshots.to_h do |digest, snapshot|
-        complete = snapshot.copies.size > 1 && snapshot.copies.all? { |copy| acknowledged.include?(copy.id) }
+        progress = @queue_copy_progress.fetch(digest)
+        complete = progress[:acknowledged].positive? && progress[:acknowledged] == progress[:total]
         [digest, review_label_for(digest, snapshot, complete)]
       end
+    end
+
+    def warning_states(scope)
+      scope.pluck(:problematic_id, :ignored, :in_progress).to_h do |id, ignored, in_progress|
+        state = if in_progress
+          "in_progress"
+        elsif ignored
+          "acknowledged"
+        else
+          "open"
+        end
+        [id, state]
+      end
+    end
+
+    def copy_progress(snapshot, states)
+      {
+        total: snapshot.copies.size,
+        acknowledged: snapshot.copies.count { |copy| states[copy.id] == "acknowledged" },
+        open: snapshot.copies.count { |copy| states[copy.id] == "open" },
+        unwarned: snapshot.copies.reject { |copy| states.key?(copy.id) }.map(&:public_id)
+      }
     end
 
     def review_label_for(digest, snapshot, acknowledged)
@@ -334,10 +369,12 @@ module DuplicateAdjudicator
     end
 
     def load_warning_counts
-      counts = group_warnings.group(:ignored, :in_progress).count
-      @open_warnings = counts.fetch([false, false], 0)
-      @ignored_warnings = counts.fetch([true, false], 0)
-      @busy_warnings = counts.sum { |(_ignored, busy), count| busy ? count : 0 }
+      @warning_states = warning_states(group_warnings)
+      counts = @warning_states.values.tally
+      @open_warnings = counts.fetch("open", 0)
+      @ignored_warnings = counts.fetch("acknowledged", 0)
+      @busy_warnings = counts.fetch("in_progress", 0)
+      @group_copy_progress = copy_progress(@snapshot, @warning_states)
     end
 
     def inline?

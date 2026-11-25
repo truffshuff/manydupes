@@ -230,3 +230,6 @@
   color: var(--da-accent);
   font-weight: 600;
 }
+
+.da .da-copy-review { border-block-start: 1px solid var(--da-line); padding-block-start: 8px; inline-size: 100%; }
+.da .da-copy-review p { font-size: 12px; }

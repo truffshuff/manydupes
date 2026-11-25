@@ -44,7 +44,7 @@
         <% @groups.each do |group| %>
           <% label = @queue_review[group.digest] %>
           <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest) %>"
-              data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>"
+              data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>" data-copy-progress="<%= @queue_copy_progress[group.digest].to_json %>"
               <%= "hidden" if @review_view.nil? && label %>>
             <summary>
               <span class="da-group-name">
