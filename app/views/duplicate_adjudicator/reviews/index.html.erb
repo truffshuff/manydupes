@@ -6,61 +6,67 @@
     <p>Review files that share a checksum in Manyfold’s index.</p>
   </header>
 
-  <%= form_with url: queue_url(library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters" do %>
-    <div>
-      <%= label_tag :library, "Library" %>
-      <%= select_tag :library, options_for_select(@libraries.map { |library| [library.name, library.public_id] }, @library&.public_id), include_blank: "All libraries", class: "form-select" %>
-    </div>
-    <div>
-      <%= label_tag :q, "Filename, folder, or model" %>
-      <%= search_field_tag :q, @search, maxlength: 160, class: "form-control" %>
-    </div>
-    <%= submit_tag "Filter", class: "btn btn-primary" %>
-    <% if @library || @search.present? %>
-      <%= link_to "Clear", queue_url(library: nil, q: nil, after: nil), class: "btn btn-outline-secondary" %>
+  <div class="da-body">
+    <%= form_with url: queue_url(library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters" do %>
+      <div>
+        <%= label_tag :library, "Library" %>
+        <%= select_tag :library, options_for_select(@libraries.map { |library| [library.name, library.public_id] }, @library&.public_id), include_blank: "All libraries", class: "form-select" %>
+      </div>
+      <div>
+        <%= label_tag :q, "Filename, folder, or model" %>
+        <%= search_field_tag :q, @search, maxlength: 160, class: "form-control" %>
+      </div>
+      <%= submit_tag "Filter", class: "da-button da-primary" %>
+      <% if @library || @search.present? %>
+        <%= link_to "Clear", queue_url(library: nil, q: nil, after: nil), class: "da-button" %>
+      <% end %>
     <% end %>
-  <% end %>
 
-  <% if @library || @search.present? %>
-    <p class="da-muted">A group is listed if any copy matches the filter. Opening it shows all indexed copies you can access.</p>
-  <% end %>
+    <% if @library || @search.present? %>
+      <p class="da-muted">A group is listed if any copy matches the filter. Opening it shows all indexed copies you can access.</p>
+    <% end %>
 
-  <% if @groups.empty? %>
-    <div class="da-panel">
-      <h2>No matching groups</h2>
-      <p><%= @after ? "You’ve reached the end of these results." : "No files with duplicate indexed checksums match these filters." %></p>
-    </div>
-  <% else %>
-    <div class="da-panel da-table-wrap">
-      <table class="da-table">
-        <caption class="visually-hidden">Duplicate checksum groups</caption>
-        <thead>
-          <tr><th scope="col">Example copy</th><th scope="col">Indexed copies</th><th scope="col">Review</th></tr>
-        </thead>
-        <tbody>
-          <% @groups.each do |group| %>
-            <tr data-review-digest="<%= group.digest %>">
-              <th scope="row">
-                <%= link_to group.example.filename, group_url(group.digest), class: "da-file-link" %>
+    <% if @groups.empty? %>
+      <div class="da-panel">
+        <h2>No matching groups</h2>
+        <p><%= @after ? "You’ve reached the end of these results." : "No files with duplicate indexed checksums match these filters." %></p>
+      </div>
+    <% else %>
+      <div class="da-queue" aria-label="Duplicate checksum groups">
+        <% @groups.each do |group| %>
+          <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest) %>">
+            <summary>
+              <span class="da-group-name">
+                <strong><%= group.example.filename %></strong>
                 <span class="da-muted"><%= group.example.model.library.name %> / <%= group.example.model.path %></span>
-              </th>
-              <td><%= group.count %> in <%= pluralize(group.model_count, "model") %></td>
-              <td><span class="da-pill" data-queue-status>Open for review</span></td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
-  <% end %>
+              </span>
+              <span class="da-group-count"><%= pluralize(group.count, "copy") %> in <%= pluralize(group.model_count, "model") %></span>
+              <span class="da-group-action">
+                <span class="da-muted" data-queue-status hidden></span>
+                <span class="da-when-closed">Open for review</span>
+                <span class="da-when-open">Collapse</span>
+              </span>
+            </summary>
+            <div class="da-group-content">
+              <p class="da-load-status" data-load-status role="status" hidden></p>
+              <button class="da-button" type="button" data-retry hidden>Retry comparison</button>
+              <div data-group-content></div>
+              <p class="da-full-link"><%= link_to "Open comparison on its own page", group_url(group.digest) %></p>
+            </div>
+          </details>
+        <% end %>
+      </div>
+    <% end %>
 
-  <% if @after || @next_page %>
-    <nav aria-label="Duplicate groups pages" class="da-actions">
-      <% if @after %>
-        <%= link_to "First page", queue_url(after: nil), class: "btn btn-outline-secondary" %>
-      <% end %>
-      <% if @next_page %>
-        <%= link_to "Next page", queue_url(after: @next_page), class: "btn btn-outline-primary" %>
-      <% end %>
-    </nav>
-  <% end %>
+    <% if @after || @next_page %>
+      <nav aria-label="Duplicate groups pages" class="da-actions">
+        <% if @after %>
+          <%= link_to "First page", queue_url(after: nil), class: "da-button" %>
+        <% end %>
+        <% if @next_page %>
+          <%= link_to "Next page", queue_url(after: @next_page), class: "da-button da-primary" %>
+        <% end %>
+      </nav>
+    <% end %>
+  </div>
 </div>

@@ -9,10 +9,10 @@ module DuplicateAdjudicator
 
     before_action :authenticate_admin_user!
     before_action :private_response
-    before_action :require_html, only: [:index, :show, :verify]
+    before_action :require_html, only: [:index, :show, :verify, :storage, :warnings]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace
+      :native_file_url, :review_namespace, :group_action_url
 
     def index
       @title = "Duplicate Adjudicator"
@@ -25,6 +25,8 @@ module DuplicateAdjudicator
     def show
       authorize ::Library, :index?
       return head :not_found unless load_group
+
+      render_comparison
     end
 
     def verify
@@ -35,7 +37,45 @@ module DuplicateAdjudicator
       return head :not_found unless file
 
       @verification = {id: file.id, result: Verification.call(file, @digest)}
-      render :show
+      render_comparison
+    end
+
+    def storage
+      authorize ::Library, :index?
+      return head :not_found unless load_group
+
+      @storage = StoragePreview.call(@left, @right)
+      render_comparison
+    end
+
+    def warnings
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_found unless load_group
+
+      action = params[:warning_action]
+      return head :bad_request unless %w[acknowledge reopen].include?(action)
+
+      ignore = action == "acknowledge"
+      changed = ::ModelFile.transaction do
+        current = inventory.snapshot(@digest, lock: true)
+        if current.fingerprint != params[:fingerprint]
+          next :stale
+        end
+
+        problems = group_warnings(current).where(ignored: !ignore, in_progress: false).order(:id).lock.to_a
+        problems.each { |problem| authorize problem, :update? }
+        problems.each { |problem| problem.update!(ignored: ignore) }
+        problems.length
+      end
+      if changed == :stale
+        return render plain: "The indexed copies changed. Reload this comparison and review them again.", status: :conflict
+      end
+
+      load_warning_counts
+      @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
+        "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
+      render_comparison
     end
 
     def theme
@@ -117,8 +157,33 @@ module DuplicateAdjudicator
 
       @compare_copies = (@copies + [@copy_by_id.fetch(@left.id), @copy_by_id.fetch(@right.id)]).uniq
       @model_file_counts = inventory.model_file_counts(@records.values.map(&:model_id).uniq)
-      @next_group = inventory.groups(library_id: @library&.id, search: @search, after: @digest, limit: 1).first
+      load_warning_counts
+      @next_group = inventory.groups(library_id: @library&.id, search: @search, after: @digest, limit: 1).first unless inline?
       true
+    end
+
+    def group_warnings(snapshot = @snapshot)
+      policy_scope(::Problem.including_ignored)
+        .where(category: :duplicate, problematic_type: "ModelFile", problematic_id: snapshot.copies.map(&:id))
+    end
+
+    def load_warning_counts
+      counts = group_warnings.group(:ignored, :in_progress).count
+      @open_warnings = counts.fetch([false, false], 0)
+      @ignored_warnings = counts.fetch([true, false], 0)
+      @busy_warnings = counts.sum { |(_ignored, busy), count| busy ? count : 0 }
+    end
+
+    def inline?
+      params[:inline] == "1"
+    end
+
+    def render_comparison
+      if inline?
+        render partial: "comparison", layout: false
+      else
+        render :show
+      end
     end
 
     def file_choice(public_id, excluding: nil)
@@ -142,12 +207,16 @@ module DuplicateAdjudicator
     end
 
     def verify_url
-      mounted_url("/group/#{@digest}/verify", **filter_params.merge(copies: @page,
+      group_action_url("verify")
+    end
+
+    def group_action_url(action)
+      mounted_url("/group/#{@digest}/#{action}", **filter_params.merge(copies: @page,
         left: @left.public_id, right: @right.public_id))
     end
 
     def asset_url(name)
-      mounted_url("/#{name}")
+      mounted_url("/#{name}", v: VERSION)
     end
 
     def mounted_url(path, **query)

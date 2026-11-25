@@ -56,9 +56,10 @@ module DuplicateAdjudicator
       end
     end
 
-    def snapshot(digest)
-      copies = @candidates.where(digest: digest).order("model_files.id")
-        .pluck("model_files.id", "model_files.public_id", "model_files.model_id", "models.library_id", "models.path",
+    def snapshot(digest, lock: false)
+      group = @candidates.where(digest: digest).order("model_files.id")
+      group = group.lock if lock
+      copies = group.pluck("model_files.id", "model_files.public_id", "model_files.model_id", "models.library_id", "models.path",
           "model_files.filename", "models.preview_file_id", "models.entrypoint_id", "model_files.presupported",
           "model_files.size", "models.name").map do |id, public_id, model_id, library_id, path, filename, preview_id, entrypoint_id, support, size, name|
         Copy.new(id: id, public_id: public_id, model_id: model_id, library_id: library_id, path: path, filename: filename,

@@ -1,0 +1,27 @@
+<section class="da-panel da-section">
+  <h2>Manyfold Problems</h2>
+  <% if @warning_feedback %>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= @warning_feedback %></p>
+  <% end %>
+  <% if (@open_warnings + @ignored_warnings + @busy_warnings).zero? %>
+    <p class="da-muted">Manyfold has no duplicate warnings recorded for this group.</p>
+  <% else %>
+    <p><%= @open_warnings %> open · <%= @ignored_warnings %> acknowledged<%= " · #{@busy_warnings} in progress" if @busy_warnings.positive? %></p>
+    <p class="da-muted">Acknowledge warnings for copies you’re keeping. The files will stay in their collections.</p>
+    <div class="da-actions">
+      <% unless SiteSettings.demo_mode_enabled? %>
+        <% if @open_warnings.positive? %>
+          <%= button_to "Acknowledge duplicate warnings", group_action_url("warnings"),
+            params: {warning_action: "acknowledge", fingerprint: @snapshot.fingerprint},
+            class: "da-button da-primary", form: {data: {inline_form: true}} %>
+        <% end %>
+        <% if @ignored_warnings.positive? %>
+          <%= button_to "Reopen ignored warnings", group_action_url("warnings"),
+            params: {warning_action: "reopen", fingerprint: @snapshot.fingerprint},
+            class: "da-button", form: {data: {inline_form: true}} %>
+        <% end %>
+      <% end %>
+      <%= link_to "Open Manyfold Problems", core_routes.problems_path(category: ["duplicate"], show_ignored: "true"), class: "da-button" %>
+    </div>
+  <% end %>
+</section>

@@ -34,9 +34,9 @@
   <% end %>
 
   <div class="da-actions">
-    <%= link_to "Open file", native_file_url(file), class: "btn btn-outline-secondary" %>
+    <%= link_to "Open file", native_file_url(file), class: "da-button" %>
     <% if copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
-      <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "btn btn-outline-primary" %>
+      <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "da-button", form: {data: {inline_form: true}} %>
     <% else %>
       <small class="da-muted">Verification limit is 64 MiB.</small>
     <% end %>
@@ -50,6 +50,6 @@
       too_large: "The stored file exceeds the 64 MiB verification limit.",
       unavailable: "Manyfold could not read the stored attachment."
     } %>
-    <p class="da-note" role="status"><%= messages.fetch(@verification.fetch(:result)) %></p>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= messages.fetch(@verification.fetch(:result)) %></p>
   <% end %>
 </article>
