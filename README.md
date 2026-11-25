@@ -13,7 +13,7 @@ The default plugin paths are `/usr/src/app/plugins` for standard Docker images a
 ## Review a group
 
 - Filter by library, filename, folder, or model name. A matching copy brings the whole checksum group into view, including copies in other libraries.
-- Click **Open for review** to expand the comparison in the queue. Select two copies to compare previews, library-relative paths, file sizes, preview and entrypoint roles, support status, and other indexed file counts. The shared-path badge identifies duplicate records that reference the same indexed path within one library.
+- Click **Open for review** to expand the group in the queue. Every copy on the current page has a card with its preview, path, size, and roles. Use **Use on left** or **Use on right** to choose the pair for checksum verification and storage actions. Larger groups are paginated and keep the selected pair visible. The shared-path badge identifies duplicate records that reference the same indexed path within one library.
 - Use **Verify checksum** to hash the currently stored attachment, up to 64 MiB per copy. Use the file and model links to inspect each copy in Manyfold.
 - **Needs review** hides groups after all their copies are linked or every indexed copy’s duplicate warning is acknowledged. **All groups** shows the full list. A group with another independent copy stays available for review.
 - Choose **Mark reviewed** or **Keep all copies** to hide a group in this browser when you collapse it. Saving a preference leaves room to decide what to do next, and **Review later** keeps the group in the queue. Browser decisions are stored per account and are rechecked when the indexed copies or their comparison metadata change.

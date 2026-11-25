@@ -1,5 +1,7 @@
-<article class="da-panel da-copy">
-  <p class="da-muted"><%= side %></p>
+<article class="da-panel da-copy" data-copy-id="<%= copy.public_id %>" data-copy-side="<%= side %>">
+  <% if side %>
+    <p class="da-copy-side"><%= side %></p>
+  <% end %>
   <h2><%= file.filename %></h2>
   <p><%= link_to file.model.name, core_routes.model_path(file.model) %></p>
   <p class="da-path"><%= file.model.library.name %> / <%= copy.indexed_path %></p>
@@ -35,7 +37,13 @@
 
   <div class="da-actions">
     <%= link_to "Open file", native_file_url(file), class: "da-button" %>
-    <% if copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
+    <% if side.nil? %>
+      <% compare = {copies: @page, left: @left.public_id, right: @right.public_id} %>
+      <%= link_to "Use on left", group_url(@digest, **compare.merge(left: copy.public_id)), class: "da-button",
+        aria: {label: "Use on left, #{copy.indexed_path}"}, data: {inline_link: true, scroll_to_pair: true} %>
+      <%= link_to "Use on right", group_url(@digest, **compare.merge(right: copy.public_id)), class: "da-button",
+        aria: {label: "Use on right, #{copy.indexed_path}"}, data: {inline_link: true, scroll_to_pair: true} %>
+    <% elsif copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
       <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "da-button", form: {data: {inline_form: true}} %>
     <% else %>
       <small class="da-muted">Verification limit is 64 MiB.</small>

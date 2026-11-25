@@ -135,6 +135,19 @@
 .da :is(.da-checksum, .da-render) summary { cursor: pointer; color: var(--da-accent); }
 
 .da .da-compare { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.da .da-copy[data-copy-side]:not([data-copy-side=""]) { border-color: var(--da-accent); }
+.da .da-copy-side {
+  color: var(--da-accent);
+  font-size: 12px;
+  font-weight: 650;
+  background: var(--da-selected);
+  padding: 3px 7px;
+  border-radius: 6px;
+}
+@media (min-width: 1300px) {
+  .da .da-compare[data-copy-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .da .da-compare[data-copy-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 .da :is(.da-copy, .da-section, .da-decision) { display: grid; align-content: start; justify-items: start; gap: 8px; min-inline-size: 0; }
 .da .da-copy > :is(dl, details, img) { inline-size: 100%; }
 .da .da-path { overflow-wrap: anywhere; color: var(--da-muted); font-size: 12px; }
@@ -171,15 +184,6 @@
 .da .da-decision .da-decision-inputs { align-items: end; }
 .da .da-decision-inputs > div { flex: 1 1 13rem; min-inline-size: 0; }
 .da [data-decision-status] { font-weight: 600; overflow-wrap: anywhere; }
-.da .da-table-wrap { overflow-x: auto; }
-.da .da-table-wrap h2 { margin-block-end: 5px; }
-.da .da-table { width: 100%; border-collapse: collapse; text-align: start; }
-.da .da-table :is(th, td) { padding: 8px 6px; text-align: start; }
-.da .da-table thead { border-bottom: 1px solid var(--da-line); }
-.da .da-table tbody tr + tr { border-top: 1px solid var(--da-line); }
-.da .da-table td:last-child { width: 1%; }
-.da .da-table .da-muted { display: block; font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
-.da .da-file-link { display: block; max-width: 75ch; overflow-wrap: anywhere; }
 .da nav.da-actions { margin-block-end: 8px; }
 
 @media (max-width: 650px) {
