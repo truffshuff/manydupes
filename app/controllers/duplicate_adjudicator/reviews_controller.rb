@@ -66,7 +66,7 @@ module DuplicateAdjudicator
 
       payload = storage_verifier.verified(params[:plan].to_s, purpose: "link-copies")
       unless params[:confirm] == "1" && payload.is_a?(Hash) && payload["context"] == storage_context
-        @storage_error = "This confirmation expired or the comparison changed. Check disk savings again."
+        @storage_error = "This confirmation expired or the comparison changed. Review the hard-link plan again."
         return render_comparison
       end
 

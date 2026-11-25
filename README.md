@@ -17,7 +17,7 @@ The default plugin paths are `/usr/src/app/plugins` for standard Docker images a
 - Use **Verify checksum** to hash the currently stored attachment, up to 64 MiB per copy. Use the file and model links to inspect each copy in Manyfold.
 - **Needs review** hides groups after all their copies are linked or every indexed copy is acknowledged. The queue brings later groups forward as you finish the visible ones. **All groups** shows the full list. A group with another independent copy stays available for review.
 - Choose **Mark reviewed** or **Keep all copies** to hide a group in this browser when you collapse it. Saving a preference leaves room to decide what to do next, and **Review later** keeps the group in the queue. Browser decisions are stored per account and are rechecked when the indexed copies or their comparison metadata change.
-- Use **Acknowledge copy** on any card or **Acknowledge all copies** to review a whole group. Native duplicate warnings are acknowledged on Manyfold’s Problems screen. Copies without a warning are acknowledged in this browser, including other indexed file formats. Warnings in progress remain open for review. Use **Reopen copy** or **Reopen group** to reverse those choices.
+- Use **Acknowledge copy** on any card or **Acknowledge all copies** below the comparison cards to review a whole group. The acknowledgment count is at the top of the comparison. Native duplicate warnings are acknowledged on Manyfold’s Problems screen. Copies without a warning are acknowledged in this browser, including other indexed file formats. Warnings in progress remain open for review. Use **Reopen copy** or **Reopen group** to reverse those choices.
 
 ## Link copies and retain an original
 
@@ -25,7 +25,7 @@ A hard link keeps both Manyfold paths and collection entries while sharing the s
 
 The default restore folder is `/mnt/3DPrints/duplicates` **inside the Manyfold container**. The plugin creates it on the first confirmed link. If the mount has a different container path, set `DUPLICATE_ADJUDICATOR_BACKUP_ROOT` to its equivalent absolute path and restart Manyfold. Keep the restore folder alongside your library folders, outside all configured libraries. The plugin refuses overlapping paths.
 
-1. Select the keeper on the left and the duplicate on the right, then choose **Check disk savings for right copy**.
+1. Select the keeper on the left and the duplicate on the right, then choose **Review hard-link plan**.
 2. Review both paths and the backup location. Select the confirmation checkbox and choose **Link copies and keep backup**. The plugin checks both stored SHA-512 sums, saves the original under `duplicates/<batch>/files/<path relative to mount>`, then replaces the right path atomically. The Manyfold records stay at their original paths.
 3. Open **Restore backups** to restore the original or explicitly purge it. The plugin verifies the current path and file contents before acting. If the file was edited or moved, the saved original remains available for manual recovery.
 

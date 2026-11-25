@@ -42,7 +42,7 @@ module DuplicateAdjudicator
 
     def plan(left, right, pair: StoragePreview.call(left, right))
       unless pair.status == :possible
-        raise Error, "Select two independent filesystem files that pass the disk savings check."
+        raise Error, "Select two independent filesystem files to review a hard-link plan."
       end
 
       paths = [pair.source_path, pair.target_path]
@@ -68,7 +68,7 @@ module DuplicateAdjudicator
       with_lock do
         checked = plan(left, right)
         unless checked.fingerprint == fingerprint
-          raise Error, "The files changed after the preview. Run the disk savings check again."
+          raise Error, "The files changed after the preview. Review the hard-link plan again."
         end
 
         pair = checked.pair
@@ -260,7 +260,7 @@ module DuplicateAdjudicator
       hash = Digest::SHA512.new
       File.open(path, READ_FILE) do |file|
         unless file.stat.file? && stamp(file.stat) == stamp(expected)
-          raise Error, "The file changed during verification. Run the disk savings check again."
+          raise Error, "The file changed during verification. Review the hard-link plan again."
         end
         while (chunk = file.read(1024 * 1024))
           hash.update(chunk)

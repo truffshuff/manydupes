@@ -4,6 +4,7 @@
   <div class="da-comparison-heading">
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
+    <p class="da-muted" data-copy-acknowledgment-count role="status"><%= @ignored_warnings %> of <%= @snapshot.copies.size %> copies acknowledged</p>
     <details class="da-checksum">
       <summary>Recorded SHA-512 checksum</summary>
       <code><%= @digest %></code>
@@ -13,8 +14,6 @@
   <% if @snapshot.path_counts.values.any? { |count| count > 1 } %>
     <p class="da-note">Some records point to the same indexed storage path. Treat those records as one location when choosing a copy.</p>
   <% end %>
-
-  <%= render "warnings" %>
 
   <% choices = @compare_copies.map do |copy|
     library = @records.fetch(copy.id).model.library
@@ -59,6 +58,8 @@
       <% end %>
     </nav>
   <% end %>
+
+  <%= render "warnings" %>
 
   <section class="da-panel da-decision" data-decision-panel hidden>
     <h2>Review decision</h2>
