@@ -1,8 +1,16 @@
 <section class="da-panel da-section">
   <h2>Disk space</h2>
-  <p class="da-muted">A hard link can keep both paths and collection entries while sharing the stored bytes. Editing either file in place would affect both.</p>
+  <p class="da-muted">A hard link can keep both paths and collection entries while sharing the stored bytes. Edits made in place affect all linked copies.</p>
   <%= button_to "Check disk savings for right copy", group_action_url("storage"),
     class: "da-button", form: {data: {inline_form: true}} %>
+  <% if @storage_feedback %>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= @storage_feedback %>
+      <%= link_to "View backup batch", backups_url(anchor: @backup_anchor) %>
+    </p>
+  <% end %>
+  <% if @storage_error %>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= @storage_error %></p>
+  <% end %>
   <% if @storage %>
     <% description = {
       nonlocal: "This check requires two filesystem-backed files.",
@@ -15,6 +23,26 @@
       possible: @storage.bytes ? "The right copy uses about #{number_to_human_size(@storage.bytes)} of allocated space. A hard link could reclaim up to that amount if the live checksums match and the filesystem supports linking the paths." :
         "The pair appears eligible by filesystem metadata. Reclaimable bytes could not be estimated."
     } %>
-    <p class="da-note" role="status" tabindex="-1" data-action-result><%= description.fetch(@storage.status) %> This check leaves both files in place.</p>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= description.fetch(@storage.status) %></p>
+  <% end %>
+  <% if @storage_plan %>
+    <div class="da-storage-paths">
+      <p>Keep <code><%= @storage_plan.source %></code></p>
+      <p>Replace <code><%= @storage_plan.target %></code> with a hard link</p>
+      <p>Save the original under <code><%= @restore_root %>/&lt;batch&gt;/files/<%= @storage_plan.target %></code></p>
+      <p class="da-muted">The saved original occupies space until you purge it. The plugin verifies both files before changing the path.</p>
+    </div>
+    <%= form_with url: group_action_url("link"), method: :post, local: true, class: "da-storage-form", data: {inline_form: true} do %>
+      <%= hidden_field_tag :plan, @storage_token, id: nil %>
+      <label>
+        <%= check_box_tag :confirm, "1", false, id: nil, required: true %>
+        Replace the right copy with a hard link and keep its original as a backup
+      </label>
+      <label>
+        <%= check_box_tag :acknowledge, "1", true, id: nil %>
+        Acknowledge the applicable Manyfold warnings after verification
+      </label>
+      <%= submit_tag "Link copies and keep backup", class: "da-button da-primary" %>
+    <% end %>
   <% end %>
 </section>

@@ -9,10 +9,10 @@ module DuplicateAdjudicator
 
     before_action :authenticate_admin_user!
     before_action :private_response
-    before_action :require_html, only: [:index, :show, :verify, :storage, :warnings]
+    before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace, :group_action_url
+      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url
 
     def index
       @title = "Duplicate Adjudicator"
@@ -45,7 +45,49 @@ module DuplicateAdjudicator
       return head :not_found unless load_group
 
       @storage = StoragePreview.call(@left, @right)
+      if @storage.status == :possible && !::SiteSettings.demo_mode_enabled?
+        prepare_storage_plan
+      end
       render_comparison
+    end
+
+    def link_copies
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_found unless load_group
+
+      payload = storage_verifier.verified(params[:plan].to_s, purpose: "link-copies")
+      unless params[:confirm] == "1" && payload.is_a?(Hash) && payload["context"] == storage_context
+        @storage_error = "This confirmation expired or the comparison changed. Check disk savings again."
+        return render_comparison
+      end
+
+      warning_ids = planned_warning_ids if params[:acknowledge] == "1"
+      batch_id = storage_operations.apply(@left, @right, digest: @digest, fingerprint: payload.fetch("fingerprint"),
+        warnings: warning_ids || [])
+      warning_error = update_storage_warnings(warning_ids, ignored: true)
+      @storage = StoragePreview.call(@left, @right)
+      @storage_feedback = "Both paths now share the same stored file. The original is in Restore backups."
+      @storage_error = warning_error
+      @backup_anchor = "backup-#{batch_id}"
+      load_warning_counts
+      render_comparison
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+      render_comparison
+    end
+
+    def backups
+      authorize ::Library, :index?
+      load_backups
+    end
+
+    def restore_copy
+      finish_backup(:restore)
+    end
+
+    def purge_backup
+      finish_backup(:purge)
     end
 
     def warnings
@@ -87,6 +129,93 @@ module DuplicateAdjudicator
     end
 
     private
+
+    def prepare_storage_plan
+      @restore_root = storage_operations.root
+      @storage_plan = storage_operations.plan(@left, @right, pair: @storage)
+      @storage_token = storage_verifier.generate(
+        {"context" => storage_context, "fingerprint" => @storage_plan.fingerprint},
+        purpose: "link-copies", expires_in: 15.minutes
+      )
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+    end
+
+    def storage_context
+      [current_user.id.to_s, @digest, @left.public_id, @right.public_id, @snapshot.fingerprint]
+    end
+
+    def storage_verifier
+      Rails.application.message_verifier("duplicate-adjudicator-storage")
+    end
+
+    def storage_operations
+      @storage_operations ||= StorageOperations.new(@libraries)
+    end
+
+    def planned_warning_ids
+      ids = @snapshot.copies.size == 2 ? [@left.id, @right.id] : [@right.id]
+      problems = group_warnings.where(problematic_id: ids, ignored: false, in_progress: false).to_a
+      problems.each { |problem| authorize problem, :update? }
+      problems.map(&:id)
+    end
+
+    def update_storage_warnings(ids, ignored:)
+      return if ids.blank?
+
+      ::Problem.transaction do
+        problems = policy_scope(::Problem.including_ignored).where(id: ids, category: :duplicate,
+          problematic_type: "ModelFile", ignored: !ignored, in_progress: false).order(:id).lock.to_a
+        problems.each { |problem| authorize problem, :update? }
+        problems.each { |problem| problem.update!(ignored: ignored) }
+      end
+      nil
+    rescue ActiveRecord::ActiveRecordError, Pundit::NotAuthorizedError
+      "The disk operation finished. Update its warnings on the Manyfold Problems screen."
+    end
+
+    def load_backups
+      @title = "Restore backups"
+      @libraries = policy_scope(::Library).to_a
+      @restore_root = storage_operations.root
+      @batches = storage_operations.batches
+      @backup_states = @batches.to_h { |batch| [batch.fetch("id"), storage_operations.state(batch)] }
+    rescue StorageOperations::Error => error
+      @backup_error = error.message
+      @batches = []
+    end
+
+    def finish_backup(action)
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :bad_request unless params[:confirm] == "1"
+
+      @libraries = policy_scope(::Library).to_a
+      batch = storage_operations.read(params[:id])
+      return head :not_found unless batch
+
+      file = policy_scope(::ModelFile).where(model_id: policy_scope(::Model).local
+        .where(library_id: @libraries.map(&:id)).reorder(nil).select(:id))
+        .find_by(public_id: batch.fetch("target_file"))
+      already_finished = storage_operations.state(batch) == (action == :restore ? "restored" : "purged")
+      result = storage_operations.finish(params[:id], file, action)
+      flash[:alert] = update_storage_warnings(result["warnings"], ignored: false) if action == :restore && !already_finished
+      flash[:notice] = action == :restore ? "Restored the original file." : "Purged the saved original."
+      redirect_to backups_url(anchor: "backup-#{params[:id]}"), status: :see_other
+    rescue StorageOperations::Error => error
+      load_backups
+      @backup_error = error.message
+      render :backups, status: :unprocessable_content
+    end
+
+    def backups_url(anchor: nil)
+      path = mounted_url("/backups")
+      anchor ? "#{path}##{anchor}" : path
+    end
+
+    def backup_action_url(id, action)
+      mounted_url("/backups/#{id}/#{action}")
+    end
 
     def is_api_request?
       false
