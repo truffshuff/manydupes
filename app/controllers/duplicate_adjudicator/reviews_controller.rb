@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "openssl"
+require "set"
 
 module DuplicateAdjudicator
   class ReviewsController < ::ApplicationController
@@ -19,6 +20,7 @@ module DuplicateAdjudicator
       set_filters
       rows = inventory.groups(library_id: @library&.id, search: @search, after: @after)
       @groups = rows.first(Index::GROUPS_PER_PAGE)
+      load_queue_review
       @next_page = @groups.last.digest if rows.size > Index::GROUPS_PER_PAGE && @groups.any?
     end
 
@@ -243,6 +245,7 @@ module DuplicateAdjudicator
       @library = @libraries.find { |record| record.public_id == params[:library] } if params[:library].is_a?(String)
       @search = params[:q].is_a?(String) ? params[:q].strip[0, 160] : ""
       @after = checksum(params[:after])
+      @review_view = params[:review] == "all" ? "all" : nil
     end
 
     def inventory
@@ -291,9 +294,43 @@ module DuplicateAdjudicator
       true
     end
 
+    def duplicate_warnings
+      policy_scope(::Problem.including_ignored).where(category: :duplicate, problematic_type: "ModelFile")
+    end
+
     def group_warnings(snapshot = @snapshot)
-      policy_scope(::Problem.including_ignored)
-        .where(category: :duplicate, problematic_type: "ModelFile", problematic_id: snapshot.copies.map(&:id))
+      duplicate_warnings.where(problematic_id: snapshot.copies.map(&:id))
+    end
+
+    def load_queue_review
+      @queue_snapshots = inventory.snapshots(@groups.map(&:digest))
+      copy_ids = @queue_snapshots.values.flat_map { |snapshot| snapshot.copies.map(&:id) }
+      acknowledged = duplicate_warnings.where(problematic_id: copy_ids, ignored: true, in_progress: false)
+        .pluck(:problematic_id).to_set
+
+      @queue_review = @queue_snapshots.to_h do |digest, snapshot|
+        complete = snapshot.copies.size > 1 && snapshot.copies.all? { |copy| acknowledged.include?(copy.id) }
+        [digest, review_label_for(digest, snapshot, complete)]
+      end
+    end
+
+    def review_label_for(digest, snapshot, acknowledged)
+      if linked_group_digests.include?(digest) && StoragePreview.all_linked?(snapshot.copies, libraries_by_id)
+        "All copies linked"
+      elsif acknowledged
+        "Warnings acknowledged"
+      end
+    end
+
+    def linked_group_digests
+      @linked_group_digests ||= storage_operations.batches
+        .reject { |batch| batch["state"] == "restored" }.map { |batch| batch.fetch("digest") }.to_set
+    rescue StorageOperations::Error
+      @linked_group_digests = Set.new
+    end
+
+    def libraries_by_id
+      @libraries_by_id ||= @libraries.index_by(&:id)
     end
 
     def load_warning_counts
@@ -308,6 +345,9 @@ module DuplicateAdjudicator
     end
 
     def render_comparison
+      acknowledged = @ignored_warnings >= @snapshot.copies.size && (@open_warnings + @busy_warnings).zero?
+      @group_review_label = review_label_for(@digest, @snapshot, acknowledged)
+
       if inline?
         render partial: "comparison", layout: false
       else
@@ -324,7 +364,7 @@ module DuplicateAdjudicator
     end
 
     def filter_params
-      {library: @library&.public_id, q: @search.presence, after: @after}
+      {library: @library&.public_id, q: @search.presence, after: @after, review: @review_view}
     end
 
     def queue_url(**options)

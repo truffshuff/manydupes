@@ -54,6 +54,25 @@ class StorageOperationsTest < Minitest::Test
     assert_equal "restored", @store.state(@store.read(id))
   end
 
+  def test_link_completion_tracks_current_storage_paths
+    libraries = {1 => @library_a, 2 => @library_b}
+    copies = [
+      DuplicateAdjudicator::Index::Copy.new(library_id: 1, path: "Sets", filename: "Keeper.stl", size: 10),
+      DuplicateAdjudicator::Index::Copy.new(library_id: 2, path: "Parts", filename: "Duplicate.stl", size: 10)
+    ]
+    refute DuplicateAdjudicator::StoragePreview.all_linked?(copies, libraries)
+
+    id = apply
+    assert DuplicateAdjudicator::StoragePreview.all_linked?(copies, libraries)
+
+    File.write(@left_path.dirname.join("Independent.stl"), "same bytes")
+    extra = DuplicateAdjudicator::Index::Copy.new(library_id: 1, path: "Sets", filename: "Independent.stl", size: 10)
+    refute DuplicateAdjudicator::StoragePreview.all_linked?(copies + [extra], libraries)
+
+    @store.finish(id, @right, :restore)
+    refute DuplicateAdjudicator::StoragePreview.all_linked?(copies, libraries)
+  end
+
   def test_purge_removes_only_the_saved_original_and_can_be_retried
     id = apply
     @store.finish(id, @right, :purge)

@@ -30,10 +30,32 @@ module DuplicateAdjudicator
       Result.new(status: :unavailable)
     end
 
+    def self.all_linked?(copies, libraries)
+      return false if copies.size < 2
+
+      inode = nil
+      copies.all? do |copy|
+        library = libraries[copy.library_id]
+        path = resolve_path(library, File.join(copy.path, copy.filename))
+        stat = path&.lstat
+        next false unless stat&.file? && stat.size == copy.size
+
+        identity = [stat.dev, stat.ino]
+        inode ||= identity
+        inode == identity
+      end
+    rescue SystemCallError, ArgumentError
+      false
+    end
+
     def self.indexed_path(file)
-      library = file.model.library
-      return unless library.storage_service == "filesystem"
-      relative = Pathname.new(file.path_within_library)
+      resolve_path(file.model.library, file.path_within_library)
+    end
+
+    def self.resolve_path(library, indexed)
+      return unless library&.storage_service == "filesystem"
+
+      relative = Pathname.new(indexed)
       return if relative.absolute? || relative.each_filename.any? { |part| part == ".." }
 
       root = Pathname.new(library.path).realpath
@@ -42,5 +64,6 @@ module DuplicateAdjudicator
 
       path if path.lstat.file?
     end
+    private_class_method :resolve_path
   end
 end

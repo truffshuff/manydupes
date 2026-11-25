@@ -57,17 +57,24 @@ module DuplicateAdjudicator
     end
 
     def snapshot(digest, lock: false)
-      group = @candidates.where(digest: digest).order("model_files.id")
-      group = group.lock if lock
-      copies = group.pluck("model_files.id", "model_files.public_id", "model_files.model_id", "models.library_id", "models.path",
-          "model_files.filename", "models.preview_file_id", "models.entrypoint_id", "model_files.presupported",
-          "model_files.size", "models.name").map do |id, public_id, model_id, library_id, path, filename, preview_id, entrypoint_id, support, size, name|
-        Copy.new(id: id, public_id: public_id, model_id: model_id, library_id: library_id, path: path, filename: filename,
-          preview: preview_id == id, entrypoint: entrypoint_id == id, support: support, size: size, name: name)
-      end
+      snapshots([digest], lock: lock).fetch(digest) { build_snapshot([]) }
+    end
 
-      Snapshot.new(copies: copies, path_counts: copies.map(&:storage_key).tally,
-        fingerprint: Digest::SHA256.hexdigest(JSON.generate(copies.map(&:to_a))))
+    def snapshots(digests, lock: false)
+      return {} if digests.empty?
+
+      group = @candidates.where(digest: digests).order("model_files.id")
+      group = group.lock if lock
+      rows = group.pluck("model_files.digest", "model_files.id", "model_files.public_id", "model_files.model_id",
+        "models.library_id", "models.path", "model_files.filename", "models.preview_file_id", "models.entrypoint_id",
+        "model_files.presupported", "model_files.size", "models.name")
+      rows.group_by(&:first).transform_values do |group_rows|
+        copies = group_rows.map do |_digest, id, public_id, model_id, library_id, path, filename, preview_id, entrypoint_id, support, size, name|
+          Copy.new(id: id, public_id: public_id, model_id: model_id, library_id: library_id, path: path, filename: filename,
+            preview: preview_id == id, entrypoint: entrypoint_id == id, support: support, size: size, name: name)
+        end
+        build_snapshot(copies)
+      end
     end
 
     def records(copies, digest:)
@@ -79,6 +86,11 @@ module DuplicateAdjudicator
     end
 
     private
+
+    def build_snapshot(copies)
+      Snapshot.new(copies: copies, path_counts: copies.map(&:storage_key).tally,
+        fingerprint: Digest::SHA256.hexdigest(JSON.generate(copies.map(&:to_a))))
+    end
 
     def file_records(relation)
       relation.preload(model: :library).to_a

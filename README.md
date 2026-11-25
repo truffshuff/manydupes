@@ -15,7 +15,8 @@ The default plugin paths are `/usr/src/app/plugins` for standard Docker images a
 - Filter by library, filename, folder, or model name. A matching copy brings the whole checksum group into view, including copies in other libraries.
 - Click **Open for review** to expand the comparison in the queue. Select two copies to compare previews, library-relative paths, file sizes, preview and entrypoint roles, support status, and other indexed file counts. The shared-path badge identifies duplicate records that reference the same indexed path within one library.
 - Use **Verify checksum** to hash the currently stored attachment, up to 64 MiB per copy. Use the file and model links to inspect each copy in Manyfold.
-- Save a preferred copy, choose **Keep all copies**, or mark the group for later. Decisions are stored per account in the current browser. A change to the indexed copies or their comparison metadata prompts a new review.
+- **Needs review** hides groups after all their copies are linked or every indexed copy’s duplicate warning is acknowledged. **All groups** shows the full list. A group with another independent copy stays available for review.
+- Choose **Mark reviewed** or **Keep all copies** to hide a group in this browser when you collapse it. Saving a preference leaves room to decide what to do next, and **Review later** keeps the group in the queue. Browser decisions are stored per account and are rechecked when the indexed copies or their comparison metadata change.
 - Use **Acknowledge duplicate warnings** when you want Manyfold to hide the existing duplicate warnings in that group. **Reopen ignored warnings** restores them to the active Problems list. Both actions operate on the group’s recorded duplicate warnings, except jobs in progress. The preferred-copy and review-later decisions are browser-only.
 
 ## Link copies and retain an original

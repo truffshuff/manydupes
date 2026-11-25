@@ -1,6 +1,6 @@
 <%= render "assets" %>
 
-<div class="da" data-turbo="false" data-review-namespace="<%= review_namespace %>">
+<div class="da" data-turbo="false" data-queue-view="<%= @review_view || "pending" %>" data-review-namespace="<%= review_namespace %>">
   <header class="da-header">
     <h1>Duplicate Adjudicator</h1>
     <p>Review files that share a checksum in Manyfold’s index.</p>
@@ -8,7 +8,14 @@
   </header>
 
   <div class="da-body">
+    <nav class="da-review-views" aria-label="Review queue">
+      <%= link_to "Needs review", queue_url(review: nil),
+        aria: {current: @review_view.nil? ? "page" : nil} %>
+      <%= link_to "All groups", queue_url(review: "all"),
+        aria: {current: @review_view == "all" ? "page" : nil} %>
+    </nav>
     <%= form_with url: queue_url(library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters" do %>
+      <%= hidden_field_tag :review, @review_view, id: nil if @review_view %>
       <div>
         <%= label_tag :library, "Library" %>
         <%= select_tag :library, options_for_select(@libraries.map { |library| [library.name, library.public_id] }, @library&.public_id), include_blank: "All libraries", class: "form-select" %>
@@ -35,7 +42,10 @@
     <% else %>
       <div class="da-queue" aria-label="Duplicate checksum groups">
         <% @groups.each do |group| %>
-          <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest) %>">
+          <% label = @queue_review[group.digest] %>
+          <details class="da-group" data-review-digest="<%= group.digest %>" data-group-url="<%= group_url(group.digest) %>"
+              data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>"
+              <%= "hidden" if @review_view.nil? && label %>>
             <summary>
               <span class="da-group-name">
                 <strong><%= group.example.filename %></strong>
@@ -43,8 +53,8 @@
               </span>
               <span class="da-group-count"><%= pluralize(group.count, "copy") %> in <%= pluralize(group.model_count, "model") %></span>
               <span class="da-group-action">
-                <span class="da-muted" data-queue-status hidden></span>
-                <span class="da-when-closed">Open for review</span>
+                <span class="da-muted" data-queue-status <%= "hidden" unless label %>><%= label %></span>
+                <span class="da-when-closed" data-open-label><%= label ? "Open comparison" : "Open for review" %></span>
                 <span class="da-when-open">Collapse</span>
               </span>
             </summary>
@@ -57,6 +67,9 @@
           </details>
         <% end %>
       </div>
+      <p class="da-panel da-muted" data-queue-empty <%= "hidden" unless @review_view.nil? && @groups.all? { |group| @queue_review[group.digest] } %>>
+        No groups on this page need review. <%= link_to "Show all groups", queue_url(review: "all") %>
+      </p>
     <% end %>
 
     <% if @after || @next_page %>

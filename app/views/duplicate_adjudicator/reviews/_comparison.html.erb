@@ -1,4 +1,4 @@
-<section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>">
+<section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>">
   <div class="da-comparison-heading">
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
@@ -22,6 +22,7 @@
     <%= hidden_field_tag :q, @search, id: nil if @search.present? %>
     <%= hidden_field_tag :after, @after, id: nil if @after %>
     <%= hidden_field_tag :copies, @page, id: nil %>
+    <%= hidden_field_tag :review, @review_view, id: nil if @review_view %>
     <div>
       <%= label_tag "da-left-#{@digest}", "Left copy" %>
       <%= select_tag :left, options_for_select(choices, @left.public_id), id: "da-left-#{@digest}", class: "form-select" %>
@@ -54,6 +55,7 @@
       </div>
       <div class="da-actions">
         <button type="button" data-decision="keep" class="da-button">Keep all copies</button>
+        <button type="button" data-decision="reviewed" class="da-button">Mark reviewed</button>
         <button type="button" data-decision="later" class="da-button">Review later</button>
         <button type="button" data-clear-decision class="da-button da-quiet" hidden>Clear decision</button>
       </div>
