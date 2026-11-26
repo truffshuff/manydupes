@@ -15,7 +15,8 @@ module DuplicateAdjudicator
     before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup, :decision, :import_reviews, :independent, :make_independent]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url, :queue_links_url, :copy_label
+      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url,
+      :queue_links_url, :copy_label, :native_duplicate_warnings_url, :native_warning_status
 
     def index
       @title = "Duplicate Adjudicator"
@@ -216,6 +217,9 @@ module DuplicateAdjudicator
       return head :bad_request unless %w[acknowledge reopen].include?(action)
 
       ignore = action == "acknowledge"
+      native_only = params[:native_only] == "1"
+      return head :bad_request if native_only && (!ignore || params.key?(:copy))
+
       outcome = ::ModelFile.transaction do
         current = inventory.snapshot(@digest, lock: true)
         next :stale unless current.fingerprint == params[:fingerprint]
@@ -231,8 +235,14 @@ module DuplicateAdjudicator
         changed.each { |warning| authorize warning, :update? }
         changed.each { |warning| warning.update!(ignored: ignore) }
 
-        warned_ids = warnings.map(&:problematic_id).to_set
-        review_targets = ignore ? targets.reject { |copy| warned_ids.include?(copy.id) } : targets
+        review_targets = if native_only
+          []
+        elsif ignore
+          warned_ids = warnings.map(&:problematic_id).to_set
+          targets.reject { |copy| warned_ids.include?(copy.id) }
+        else
+          targets
+        end
         [changed.length, review_targets.map(&:public_id)]
       end
       if outcome == :stale
@@ -243,8 +253,10 @@ module DuplicateAdjudicator
       changed, copy_ids = outcome
       @warning_copy = params[:copy]
       load_warning_counts
-      save_copy_acknowledgments(action, copy_ids)
-      load_saved_review
+      unless native_only
+        save_copy_acknowledgments(action, copy_ids)
+        load_saved_review
+      end
       if changed.positive? || copy_ids.empty?
         @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
           "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
@@ -658,10 +670,10 @@ module DuplicateAdjudicator
 
     def warning_states(scope)
       scope.pluck(:problematic_id, :ignored, :in_progress).to_h do |id, ignored, in_progress|
-        state = if in_progress
-          "in_progress"
-        elsif ignored
+        state = if ignored
           "acknowledged"
+        elsif in_progress
+          "in_progress"
         else
           "open"
         end
@@ -670,10 +682,12 @@ module DuplicateAdjudicator
     end
 
     def copy_progress(snapshot, states)
+      counts = snapshot.copies.map { |copy| states[copy.id] }.tally
       {
         total: snapshot.copies.size,
-        acknowledged: snapshot.copies.count { |copy| states[copy.id] == "acknowledged" },
-        open: snapshot.copies.count { |copy| states[copy.id] == "open" },
+        acknowledged: counts.fetch("acknowledged", 0),
+        open: counts.fetch("open", 0),
+        in_progress: counts.fetch("in_progress", 0),
         unwarned: snapshot.copies.reject { |copy| states.key?(copy.id) }.map(&:public_id)
       }
     end
@@ -688,9 +702,8 @@ module DuplicateAdjudicator
 
     def load_warning_counts
       @warning_states = warning_states(group_warnings)
-      counts = @warning_states.values.tally
-      @ignored_warnings = counts.fetch("acknowledged", 0)
       @group_copy_progress = copy_progress(@snapshot, @warning_states)
+      @ignored_warnings = @group_copy_progress[:acknowledged]
     end
 
     def inline?
@@ -781,6 +794,18 @@ module DuplicateAdjudicator
 
     def core_routes
       Rails.application.routes.url_helpers
+    end
+
+    def native_duplicate_warnings_url
+      core_routes.problems_path(category: ["duplicate"])
+    end
+
+    def native_warning_status(progress)
+      if progress[:open].positive?
+        "#{helpers.pluralize(progress[:open], "Manyfold warning")} open"
+      elsif progress[:in_progress].positive?
+        "Manyfold check in progress"
+      end
     end
 
     def native_file_url(file, **options)

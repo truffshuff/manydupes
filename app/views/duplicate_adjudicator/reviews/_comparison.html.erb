@@ -6,7 +6,7 @@
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
     <p class="da-muted" data-copy-acknowledgment-count role="status"><%= @link_complete ? "All copies linked" : "#{@ignored_warnings} of #{@snapshot.copies.size} copies acknowledged" %></p>
-    <%= link_to "Manyfold Problems", core_routes.problems_path(category: ["duplicate"], show_ignored: "true") %>
+    <%= link_to "Manyfold duplicate warnings", native_duplicate_warnings_url %>
     <details class="da-checksum">
       <summary>Recorded SHA-512 checksum</summary>
       <code><%= @digest %></code>
@@ -65,4 +65,11 @@
   <% end %>
 
   <%= render "storage" %>
+  <% if @group_copy_progress[:open].positive? && !SiteSettings.demo_mode_enabled? %>
+    <%= button_to "Acknowledge #{pluralize(@group_copy_progress[:open], "Manyfold warning")}",
+      group_action_url("warnings"), params: {warning_action: "acknowledge", native_only: "1", fingerprint: @snapshot.fingerprint},
+      class: "da-button", form: {data: {inline_form: true, scroll_to_result: true, native_warning_action: true}} %>
+  <% elsif @group_copy_progress[:in_progress].positive? %>
+    <p class="da-muted" role="status">Manyfold is still processing a duplicate warning in this group.</p>
+  <% end %>
 </section>

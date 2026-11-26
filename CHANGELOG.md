@@ -1,5 +1,10 @@
 # Duplicate Adjudicator release history
 
+## [0.9.4](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.4)
+
+- Keep checksum groups with active Manyfold duplicate warnings in **Needs review**, including groups already linked or marked reviewed.
+- Acknowledge a group’s open Manyfold warnings in one action. The Problems shortcut opens active duplicate warnings.
+
 ## [0.9.3](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.3)
 
 - Verify live files and retained originals across link and rename operations when filesystem link counts or change times are delayed.

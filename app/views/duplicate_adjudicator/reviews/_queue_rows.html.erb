@@ -1,10 +1,13 @@
 <% @groups.each do |group| %>
   <% label = @queue_review[group.digest] %>
+  <% warning_status = native_warning_status(@queue_copy_progress.fetch(group.digest, {open: 0, in_progress: 0})) %>
+  <% completed = label && !warning_status %>
+  <% status = warning_status || label %>
   <details class="da-group" data-review-digest="<%= group.digest %>" data-queue-cursor="<%= group.cursor(@sort) %>" data-group-url="<%= group_url(group.digest, after: @queue_entry_after) %>"
       data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>" data-copy-progress="<%= @queue_copy_progress[group.digest].to_json %>"
       data-link-complete="<%= label == "All copies linked" %>"
       data-saved-review="<%= @queue_saved_reviews[group.digest].to_json %>"
-      <%= "hidden" if @review_view.nil? && label %>>
+      <%= "hidden" if @review_view.nil? && completed %>>
     <summary>
       <span class="da-group-name">
         <strong><%= group.example.filename %></strong>
@@ -14,8 +17,8 @@
         <% if @sort %><span class="da-muted"> · <%= number_to_human_size(group.savings) %> estimated savings</span><% end %>
       </span>
       <span class="da-group-action">
-        <span class="da-muted" data-queue-status <%= "hidden" unless label %>><%= label %></span>
-        <span class="da-when-closed" data-open-label><%= label ? "Open comparison" : "Open for review" %></span>
+        <span class="da-muted" data-queue-status <%= "hidden" unless status %>><%= status %></span>
+        <span class="da-when-closed" data-open-label><%= completed ? "Open comparison" : "Open for review" %></span>
         <span class="da-when-open">Collapse</span>
       </span>
     </summary>

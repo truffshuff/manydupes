@@ -4,7 +4,10 @@
   <header class="da-header">
     <h1>Duplicate Adjudicator</h1>
     <p>Review files that share a checksum in Manyfold’s index.</p>
-    <%= link_to "Restore backups", backups_url, class: "da-button da-header-action" %>
+    <div class="da-actions da-header-action">
+      <%= link_to "Manyfold duplicate warnings", native_duplicate_warnings_url, class: "da-button" %>
+      <%= link_to "Restore backups", backups_url, class: "da-button" %>
+    </div>
   </header>
 
   <div class="da-body">
@@ -55,12 +58,15 @@
         <%= render "queue_rows" %>
       </div>
       <% if @review_view.nil? %>
+        <% reviewable = @groups.any? do |group|
+          !@queue_review[group.digest] || native_warning_status(@queue_copy_progress.fetch(group.digest))
+        end %>
         <p class="da-load-status" data-queue-loading role="status" hidden>Loading more groups to review…</p>
         <div class="da-actions" data-queue-error hidden>
           <p class="da-muted" role="status">Could not load more review groups.</p>
           <button type="button" class="da-button" data-queue-retry>Retry loading groups</button>
         </div>
-        <p class="da-panel da-muted" data-queue-empty <%= "hidden" if @next_page || @groups.any? { |group| !@queue_review[group.digest] } %>>
+        <p class="da-panel da-muted" data-queue-empty <%= "hidden" if @next_page || reviewable %>>
           No more groups need review. <%= link_to "Show all groups", queue_url(review: "all") %>
         </p>
       <% end %>
