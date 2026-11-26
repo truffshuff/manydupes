@@ -1,5 +1,10 @@
 # Duplicate Adjudicator release history
 
+## [0.9.2](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.2)
+
+- Show the first page of the duplicate queue from the Manyfold index. Check live link status for the displayed groups after the page loads.
+- Refill the queue without scanning backup history. Calculate indexed savings only when that sort is selected.
+
 ## [0.9.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.1)
 
 - Open comparison cards without scanning backup manifests, checking the live file paths, or waiting for legacy browser reviews to import.

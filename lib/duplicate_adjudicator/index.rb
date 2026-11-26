@@ -63,10 +63,11 @@ module DuplicateAdjudicator
         grouped = grouped.where("model_files.digest > ?", after) if after
         grouped = grouped.order("model_files.digest")
       end
-      rows = grouped.limit(limit).pluck(:digest, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT model_files.model_id)"),
-        Arel.sql(SAVINGS), Arel.sql("MIN(model_files.id)"))
-      examples = file_records(@files.where(id: rows.map(&:last))).index_by(&:id)
-      rows.filter_map do |digest, count, model_count, savings, id|
+      fields = [:digest, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT model_files.model_id)"), Arel.sql("MIN(model_files.id)")]
+      fields << Arel.sql(SAVINGS) if sort == "savings"
+      rows = grouped.limit(limit).pluck(*fields)
+      examples = file_records(@files.where(id: rows.map { |_, _, _, example_id| example_id })).index_by(&:id)
+      rows.filter_map do |digest, count, model_count, id, savings|
         example = examples[id]
         Group.new(digest: digest, count: count, model_count: model_count, savings: savings.to_i, example: example) if example
       end

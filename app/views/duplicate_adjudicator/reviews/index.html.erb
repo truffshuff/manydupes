@@ -50,7 +50,7 @@
     <% else %>
       <div class="da-queue" aria-label="Duplicate checksum groups" data-review-queue
         data-page-size="<%= DuplicateAdjudicator::Index::GROUPS_PER_PAGE %>" data-next-after="<%= @next_page %>"
-        data-page-url="<%= queue_url(after: nil) %>"
+        data-page-url="<%= queue_url(after: nil) %>" data-link-check-url="<%= queue_links_url %>"
         data-refill-url="<%= queue_url(after: nil, refill: "1", queue_after: @after) if @review_view.nil? %>">
         <%= render "queue_rows" %>
       </div>

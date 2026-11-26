@@ -15,7 +15,7 @@ module DuplicateAdjudicator
     before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup, :decision, :import_reviews, :independent, :make_independent]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url, :copy_label
+      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url, :queue_links_url, :copy_label
 
     def index
       @title = "Duplicate Adjudicator"
@@ -25,9 +25,25 @@ module DuplicateAdjudicator
       size = refill ? QUEUE_REFILL_SIZE : Index::GROUPS_PER_PAGE
       rows = inventory.groups(library_id: @library&.id, search: @search, after: @after, sort: @sort, limit: size + 1)
       @groups = rows.first(size)
-      load_queue_review
+      load_queue_review(check_links: refill)
       @next_page = @groups.last.cursor(@sort) if rows.size > size && @groups.any?
       render partial: "queue_refill", layout: false if refill
+    end
+
+    def queue_links
+      authorize ::Library, :index?
+      requested = params[:digests]
+      unless requested.is_a?(Array) && requested.size.between?(1, Index::GROUPS_PER_PAGE) &&
+          requested.all? { |digest| checksum(digest) }
+        return head :bad_request
+      end
+
+      set_filters
+      snapshots = inventory.snapshots(requested.uniq)
+      statuses = snapshots.transform_values do |snapshot|
+        {fingerprint: snapshot.fingerprint, linked: queue_group_linked?(snapshot)}
+      end
+      render json: statuses
     end
 
     def show
@@ -623,7 +639,7 @@ module DuplicateAdjudicator
       duplicate_warnings.where(problematic_id: snapshot.copies.map(&:id))
     end
 
-    def load_queue_review
+    def load_queue_review(check_links:)
       @queue_snapshots = inventory.snapshots(@groups.map(&:digest))
       copy_ids = @queue_snapshots.values.flat_map { |snapshot| snapshot.copies.map(&:id) }
       states = warning_states(duplicate_warnings.where(problematic_id: copy_ids))
@@ -631,8 +647,12 @@ module DuplicateAdjudicator
       @queue_copy_progress = @queue_snapshots.transform_values { |snapshot| copy_progress(snapshot, states) }
       @queue_review = @queue_snapshots.to_h do |digest, snapshot|
         progress = @queue_copy_progress.fetch(digest)
-        complete = progress[:acknowledged].positive? && progress[:acknowledged] == progress[:total]
-        [digest, review_label_for(digest, snapshot, complete)]
+        label = if check_links && queue_group_linked?(snapshot)
+          "All copies linked"
+        elsif progress[:acknowledged].positive? && progress[:acknowledged] == progress[:total]
+          "Warnings acknowledged"
+        end
+        [digest, label]
       end
     end
 
@@ -658,19 +678,8 @@ module DuplicateAdjudicator
       }
     end
 
-    def review_label_for(digest, snapshot, acknowledged)
-      if linked_group_digests.include?(digest) && StoragePreview.all_linked?(snapshot.copies, libraries_by_id)
-        "All copies linked"
-      elsif acknowledged
-        "Warnings acknowledged"
-      end
-    end
-
-    def linked_group_digests
-      @linked_group_digests ||= storage_operations.batches
-        .reject { |batch| batch["state"] == "restored" }.map { |batch| batch.fetch("digest") }.to_set
-    rescue StorageOperations::Error
-      @linked_group_digests = Set.new
+    def queue_group_linked?(snapshot)
+      snapshot.path_counts.size > 1 && StoragePreview.all_linked?(snapshot.copies, libraries_by_id, distinct_paths: true)
     end
 
     def libraries_by_id
@@ -737,6 +746,10 @@ module DuplicateAdjudicator
 
     def queue_url(**options)
       mounted_url("/", **filter_params.merge(options))
+    end
+
+    def queue_links_url
+      mounted_url("/queue-links")
     end
 
     def group_url(digest = @digest, **options)

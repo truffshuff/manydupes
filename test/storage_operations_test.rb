@@ -64,6 +64,8 @@ class StorageOperationsTest < Minitest::Test
 
     id = apply
     assert DuplicateAdjudicator::StoragePreview.all_linked?(copies, libraries)
+    assert DuplicateAdjudicator::StoragePreview.all_linked?(copies, libraries, distinct_paths: true)
+    refute DuplicateAdjudicator::StoragePreview.all_linked?([copies.first, copies.first], libraries, distinct_paths: true)
 
     File.write(@left_path.dirname.join("Independent.stl"), "same bytes")
     extra = DuplicateAdjudicator::Index::Copy.new(library_id: 1, path: "Sets", filename: "Independent.stl", size: 10)
