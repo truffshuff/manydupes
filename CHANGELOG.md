@@ -1,0 +1,49 @@
+# Duplicate Adjudicator release history
+
+## [0.8.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.8.1)
+
+- Clarified installation, review persistence, bulk warning acknowledgment, and the difference between indexed size estimates and space that purging can reclaim.
+- Documented how to find the independent-copy action and added this release history. Plugin behavior is the same as in 0.8.0.
+
+## [0.8.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.8.0)
+
+- Link multiple targets to one keeper, with a separate retained original and result for each target.
+- Show collection memberships and save reviews per Manyfold account. Import matching browser reviews on upgrade.
+- Sort by indexed estimates, show the space held by retained originals, and give a linked copy its own storage.
+
+## [0.7.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.7.1)
+
+- Show acknowledgment progress above the comparison and put the group action below the cards.
+- Use **Review hard-link plan** to see the backup path and estimate before confirming a link.
+
+## [0.7.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.7.0)
+
+- Bring later groups into **Needs review** as you finish the current page.
+
+## [0.6.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.6.0)
+
+- Acknowledge individual copies or the whole group, including files of any indexed type. Save acknowledgments for copies without native warnings in the browser.
+
+## [0.5.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.5.0)
+
+- Show a card for each copy on the current comparison page and keep the chosen pair visible when paging through larger groups.
+
+## [0.4.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.4.0)
+
+- Add the **Needs review** and **All groups** views. Save **Mark reviewed** and **Keep all copies** decisions in the browser.
+
+## [0.3.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.3.1)
+
+- Fix HTTP 406 errors when opening a comparison or submitting a comparison action.
+
+## [0.3.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.3.0)
+
+- Link verified copies while retaining restorable originals outside the libraries. Restore or explicitly purge originals from **Restore backups**.
+
+## [0.2.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.2.0)
+
+- Expand comparisons in the queue with the Collection Browser theme, review native Manyfold warnings, and estimate savings for a selected copy.
+
+## [0.1.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.1.0)
+
+- Compare indexed checksum groups across libraries, inspect previews, verify stored attachments, and save browser review decisions.
