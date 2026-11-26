@@ -1,5 +1,10 @@
 # Duplicate Adjudicator release history
 
+## [0.9.3](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.3)
+
+- Verify live files and retained originals across link and rename operations when filesystem link counts or change times are delayed.
+- Include the affected path when a verified file or its attributes change during a storage operation.
+
 ## [0.9.2](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.2)
 
 - Show the first page of the duplicate queue from the Manyfold index. Check live link status for the displayed groups after the page loads.

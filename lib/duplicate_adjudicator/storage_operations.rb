@@ -104,16 +104,13 @@ module DuplicateAdjudicator
 
         backup = backup_path(batch)
         make_backup_directories(batch_directory, backup.dirname)
-        assert_unchanged!(pair.target_path, pair.target)
+        assert_unchanged!(pair.target_path, pair.target, links: 1)
         File.link(pair.target_path, backup)
         backup_saved = true
         sync_directory(backup.dirname)
-        unless identity(regular_stat(backup)) == batch.fetch("original_inode")
-          raise Error, "The duplicate changed while its backup was being made. Check Restore backups."
-        end
+        assert_unchanged!(backup, pair.target)
 
-        replace_with_link(pair.source_path, pair.target_path, linking: pair.source, replacing: pair.target,
-          expected_source_links: pair.source.nlink, expected_target_links: pair.target.nlink + 1)
+        replace_with_link(pair.source_path, pair.target_path, linking: pair.source, replacing: pair.target)
         assert_unchanged!(backup, pair.target)
         write_manifest(batch.merge("state" => "linked"))
         id
@@ -270,8 +267,7 @@ module DuplicateAdjudicator
         current = verify_current!(live, digest, live_identity)
         saved = verify_current!(backup, digest, batch["original_inode"]) if !original_in_place || backup.exist?
         if action == :restore && !original_in_place
-          replace_with_link(backup, live, linking: saved, replacing: current,
-            expected_source_links: saved.nlink, expected_target_links: current.nlink)
+          replace_with_link(backup, live, linking: saved, replacing: current)
         end
 
         if saved
@@ -334,20 +330,17 @@ module DuplicateAdjudicator
       end
     end
 
-    def replace_with_link(source, target, linking:, replacing:, expected_source_links:, expected_target_links:)
+    def replace_with_link(source, target, linking:, replacing:)
       stage = target.dirname.join(".duplicate-adjudicator-#{SecureRandom.uuid}")
-      assert_unchanged!(source, linking, links: expected_source_links)
+      assert_unchanged!(source, linking)
       File.link(source, stage)
-      unless identity(regular_stat(stage)) == identity(linking)
-        raise Error, "The source changed while the temporary link was being created."
-      end
-
-      assert_unchanged!(source, linking, links: expected_source_links + 1)
-      assert_unchanged!(target, replacing, links: expected_target_links)
+      assert_unchanged!(stage, linking)
+      assert_unchanged!(source, linking)
+      assert_unchanged!(target, replacing)
       File.rename(stage, target)
       sync_directory(target.dirname)
-      assert_unchanged!(source, linking, links: expected_source_links + 1)
-      assert_unchanged!(target, linking, links: expected_source_links + 1)
+      assert_unchanged!(source, linking)
+      assert_unchanged!(target, linking)
     ensure
       if stage && identity(regular_stat(stage)) == identity(linking)
         File.unlink(stage)
@@ -366,25 +359,33 @@ module DuplicateAdjudicator
 
     def verify!(path, digest, expected)
       hash = Digest::SHA512.new
+      file_stamp = content_stamp(expected)
       File.open(path, READ_FILE) do |file|
-        unless file.stat.file? && stamp(file.stat) == stamp(expected)
-          raise Error, "The file changed during verification. Review the hard-link plan again."
+        opened = file.stat
+        unless opened.file? && content_stamp(opened) == file_stamp
+          raise Error, "The stored file or its attributes changed before verification (#{path.relative_path_from(@mount)}). Review the hard-link plan again."
         end
+
         while (chunk = file.read(1024 * 1024))
           hash.update(chunk)
         end
-        unless stamp(file.stat) == stamp(expected) && hash.hexdigest == digest
-          raise Error, "The stored bytes differ from the indexed checksum. Rescan before linking."
+        unless content_stamp(file.stat) == file_stamp && hash.hexdigest == digest
+          raise Error, "The stored bytes or attributes differ from the indexed copy (#{path.relative_path_from(@mount)}). Rescan before linking."
         end
         file.fsync
       end
       assert_unchanged!(path, expected)
     end
 
-    def assert_unchanged!(path, expected, links: expected.nlink)
+    # A hard link changes ctime and nlink. Verify the inode and content metadata
+    # across our own link and rename operations even when those fields lag.
+    def assert_unchanged!(path, expected, links: nil)
       current = regular_stat(path)
-      unless current && content_stamp(current) == content_stamp(expected) && current.nlink == links
-        raise Error, "A stored path changed. Check Restore backups before retrying."
+      unless current && content_stamp(current) == content_stamp(expected)
+        raise Error, "The stored path or file attributes changed (#{path.relative_path_from(@mount)}). Check Restore backups before retrying."
+      end
+      if links && current.nlink != links
+        raise Error, "The original has another hard link (#{path.relative_path_from(@mount)}). Review the hard-link plan again."
       end
     end
 

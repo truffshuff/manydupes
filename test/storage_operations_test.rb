@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "delegate"
 require "fileutils"
 require "minitest/autorun"
 require "tmpdir"
@@ -11,6 +12,16 @@ class StorageOperationsTest < Minitest::Test
   Library = Struct.new(:path, :storage_service)
   Model = Struct.new(:library)
   Copy = Struct.new(:model, :path_within_library, :size, :public_id)
+
+  class CachedLinkStat < SimpleDelegator
+    attr_reader :nlink, :ctime
+
+    def initialize(stat, nlink:, ctime: stat.ctime)
+      super(stat)
+      @nlink = nlink
+      @ctime = ctime
+    end
+  end
 
   def setup
     @temporary = Dir.mktmpdir("duplicate-adjudicator-operations")
@@ -165,6 +176,60 @@ class StorageOperationsTest < Minitest::Test
 
     @store.finish(error.backup_id, @right, :restore)
     assert_equal original, @right_path.stat.ino
+  end
+
+  def test_a_stale_backup_link_count_still_completes_the_link_and_preserves_the_original
+    target_path = @right_path
+    storage_class = Class.new(DuplicateAdjudicator::StorageOperations) do
+      private
+
+      define_method(:regular_stat) do |path|
+        stat = super(path)
+        if stat && path.to_s.start_with?("#{@root}/") && path.basename == target_path.basename &&
+            !File.identical?(path, target_path)
+          CachedLinkStat.new(stat, nlink: 2)
+        else
+          stat
+        end
+      end
+    end
+    store = storage_class.new([@library_a, @library_b], root: @root.to_s)
+    original_inode = @right_path.stat.ino
+    plan = store.plan(@left, @right)
+
+    id = store.apply(@left, @right, digest: @digest, fingerprint: plan.fingerprint, warnings: [42])
+    assert_equal "linked", store.read(id)["state"]
+    assert_equal @left_path.stat.ino, @right_path.stat.ino
+    assert_equal original_inode, saved_original(id).stat.ino
+    assert_equal @digest, Digest::SHA512.file(saved_original(id)).hexdigest
+    assert_equal [42], store.read(id)["warnings"]
+  end
+
+  def test_a_batch_accepts_refreshed_keeper_link_metadata_before_hashing_the_next_copy
+    storage_class = Class.new(DuplicateAdjudicator::StorageOperations) do
+      def plan(...)
+        result = super
+        source = result.pair.source
+        if source.nlink > 1
+          result.pair.source = CachedLinkStat.new(source, nlink: 1, ctime: source.ctime - 1)
+        end
+        result
+      end
+    end
+    store = storage_class.new([@library_a, @library_b], root: @root.to_s)
+    third_path = @right_path.dirname.join("More.stl")
+    third_path.write("same bytes")
+    third = Copy.new(Model.new(@library_b), "Parts/More.stl", 10, "third")
+    plan = store.plan(@left, third)
+    first_id = apply
+
+    second_id = store.apply_batch_member(@left, third, digest: @digest,
+      fingerprint: plan.batch_fingerprint, warnings: [])
+    assert_equal @left_path.stat.ino, third_path.stat.ino
+    assert_equal "linked", store.read(second_id)["state"]
+    assert saved_original(first_id).exist?
+    original = @root.join(second_id, "files", "Library B", "Parts", "More.stl")
+    assert_equal @digest, Digest::SHA512.file(original).hexdigest
   end
 
   def test_restart_recovers_a_linked_copy_from_a_pending_manifest
