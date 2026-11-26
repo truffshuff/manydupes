@@ -2,6 +2,7 @@
   <% label = @queue_review[group.digest] %>
   <details class="da-group" data-review-digest="<%= group.digest %>" data-queue-cursor="<%= group.cursor(@sort) %>" data-group-url="<%= group_url(group.digest, after: @queue_entry_after) %>"
       data-fingerprint="<%= @queue_snapshots[group.digest]&.fingerprint %>" data-review-label="<%= label %>" data-copy-progress="<%= @queue_copy_progress[group.digest].to_json %>"
+      data-link-complete="<%= label == "All copies linked" %>"
       data-saved-review="<%= @queue_saved_reviews[group.digest].to_json %>"
       <%= "hidden" if @review_view.nil? && label %>>
     <summary>

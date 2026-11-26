@@ -53,10 +53,10 @@
         <%= button_to "Review hard-link plan", group_action_url("storage"), params: {scope: "group"},
           class: "da-button da-primary", form: {data: {inline_form: true, scroll_to_result: true}} %>
       <% else %>
-        <%= button_to "Set as keeper", group_action_url("decision", left: copy.public_id),
-          params: {decision: "prefer", preferred: copy.public_id, fingerprint: @snapshot.fingerprint},
-          class: "da-button da-primary", aria: {label: "Set as keeper, #{copy.indexed_path}"},
-          form: {data: {inline_form: true}} %>
+        <%= button_to "Choose keeper and review links", group_action_url("decision", left: copy.public_id),
+          params: {decision: "prefer", preferred: copy.public_id, fingerprint: @snapshot.fingerprint, preview_links: "1"},
+          class: "da-button da-primary", aria: {label: "Choose keeper and review links, #{copy.indexed_path}"},
+          form: {data: {inline_form: true, scroll_to_result: true}} %>
       <% end %>
     <% end %>
     <%= link_to "Open file", native_file_url(file), class: "da-button" %>

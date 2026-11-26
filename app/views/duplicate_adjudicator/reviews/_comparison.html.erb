@@ -1,10 +1,11 @@
 <section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>"
+    <% unless @link_complete.nil? %>data-link-complete="<%= @link_complete %>"<% end %>
     data-copy-progress="<%= @group_copy_progress.to_json %>"
     data-saved-review="<%= @saved_review.to_json %>">
   <div class="da-comparison-heading">
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
-    <p class="da-muted" data-copy-acknowledgment-count role="status"><%= @ignored_warnings %> of <%= @snapshot.copies.size %> copies acknowledged</p>
+    <p class="da-muted" data-copy-acknowledgment-count role="status"><%= @link_complete ? "All copies linked" : "#{@ignored_warnings} of #{@snapshot.copies.size} copies acknowledged" %></p>
     <%= link_to "Manyfold Problems", core_routes.problems_path(category: ["duplicate"], show_ignored: "true") %>
     <details class="da-checksum">
       <summary>Recorded SHA-512 checksum</summary>

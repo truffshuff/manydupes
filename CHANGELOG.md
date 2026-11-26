@@ -1,5 +1,11 @@
 # Duplicate Adjudicator release history
 
+## [0.9.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.1)
+
+- Open comparison cards without scanning backup manifests, checking the live file paths, or waiting for legacy browser reviews to import.
+- Choose a keeper and open the whole-group hard-link plan in one click. Confirm selected copies and automatically handle their applicable Manyfold warnings in the same action.
+- Find the independent-copy action alongside linked copies in the plan and results.
+
 ## [0.9.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.0)
 
 - Set a keeper directly from its comparison card. Review every eligible copy in the group in one plan, with the option to keep individual copies independent.

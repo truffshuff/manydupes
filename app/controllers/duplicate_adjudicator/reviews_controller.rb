@@ -113,6 +113,7 @@ module DuplicateAdjudicator
           targets = files.map { |file| @copy_by_id.fetch(file.id) }
         end
         apply_batch_plan(keeper, targets, fingerprints, acknowledge: params[:acknowledge] == "1")
+        refresh_link_completion
         if payload["group"]
           @batch_results.concat(@snapshot.copies.filter_map do |copy|
             {copy: copy, status: :skipped} if fingerprints.key?(copy.public_id) && !selected.include?(copy.public_id)
@@ -129,11 +130,15 @@ module DuplicateAdjudicator
       @storage_feedback = "Both paths now share the same stored file. The original is in Restore backups."
       @storage_error = warning_error
       @backup_anchor = "backup-#{batch_id}"
+      refresh_link_completion
       load_warning_counts
       render_comparison
     rescue StorageOperations::Error => error
       @storage_error = error.linked ? "The paths share storage. Check the saved original. #{error.message}" : error.message
-      @backup_anchor = "backup-#{error.backup_id}" if error.backup_id
+      if error.backup_id
+        @backup_anchor = "backup-#{error.backup_id}"
+        refresh_link_completion
+      end
       render_comparison
     end
 
@@ -166,6 +171,7 @@ module DuplicateAdjudicator
 
       storage_operations.make_independent(@left, @right, digest: @digest, fingerprint: plan.fetch("fingerprint"))
       @storage_feedback = "The right copy now has its own storage."
+      @link_complete = false
       render_comparison
     rescue StorageOperations::Error => error
       @storage_error = error.message
@@ -222,6 +228,7 @@ module DuplicateAdjudicator
       @warning_copy = params[:copy]
       load_warning_counts
       save_copy_acknowledgments(action, copy_ids)
+      load_saved_review
       if changed.positive? || copy_ids.empty?
         @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
           "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
@@ -253,7 +260,12 @@ module DuplicateAdjudicator
         end
         state["decision"] = kind == "clear" ? nil : {"type" => kind, "copy" => copy_id}
       end
-      @keeper_updated = copy_id if kind == "prefer"
+      load_saved_review
+      if kind == "prefer" && params[:preview_links] == "1"
+        prepare_group_plan
+      elsif kind == "prefer"
+        @keeper_updated = copy_id
+      end
       render_comparison
     rescue ReviewStore::Error
       @review_feedback = "Manyfold could not save your review. Check the plugin’s review data folder."
@@ -374,7 +386,7 @@ module DuplicateAdjudicator
 
         pair = StoragePreview.call(keeper, file)
         if pair.status == :same_file
-          next({copy: copy, status: :shared})
+          next({copy: copy, status: :shared, independent: pair.source_path != pair.target_path})
         end
 
         plan = storage_operations.plan(keeper, file, pair: pair)
@@ -384,6 +396,10 @@ module DuplicateAdjudicator
         {copy: copy, status: :eligible, plan: plan}
       rescue StorageOperations::Error => error
         {copy: copy, status: :blocked, message: error.message}
+      end
+      if whole_group
+        @link_complete = false
+        refresh_link_completion if @batch_preview.all? { |entry| entry[:status] == :shared }
       end
       fingerprints = @batch_preview.filter_map do |entry|
         [entry.fetch(:copy).public_id, entry.fetch(:plan).batch_fingerprint] if entry[:plan]
@@ -398,20 +414,22 @@ module DuplicateAdjudicator
     end
 
     def apply_batch_plan(keeper, copies, fingerprints, acknowledge:)
+      @batch_keeper = @copy_by_id.fetch(keeper.id)
       records = inventory.records(copies, digest: @digest)
       @batch_results = copies.map do |copy|
         file = records[copy.id]
         next({copy: copy, status: :failed, message: "This copy is no longer in the indexed group."}) unless file
 
-        if StoragePreview.call(keeper, file).status == :same_file
-          next({copy: copy, status: :shared})
+        pair = StoragePreview.call(keeper, file)
+        if pair.status == :same_file
+          next({copy: copy, status: :shared, independent: pair.source_path != pair.target_path})
         end
 
         warning_targets = @snapshot.copies.size == 2 ? [keeper.id, file.id] : [file.id]
         warning_ids = acknowledge ? planned_warning_ids(warning_targets) : []
         id = storage_operations.apply_batch_member(keeper, file, digest: @digest,
           fingerprint: fingerprints.fetch(file.public_id), warnings: warning_ids)
-        {copy: copy, status: :linked, id: id, message: update_storage_warnings(warning_ids, ignored: true)}
+        {copy: copy, status: :linked, id: id, independent: true, message: update_storage_warnings(warning_ids, ignored: true)}
       rescue StorageOperations::Error => error
         {copy: copy, status: error.linked ? :attention : :failed, id: error.backup_id, message: error.message}
       end
@@ -662,9 +680,7 @@ module DuplicateAdjudicator
     def load_warning_counts
       @warning_states = warning_states(group_warnings)
       counts = @warning_states.values.tally
-      @open_warnings = counts.fetch("open", 0)
       @ignored_warnings = counts.fetch("acknowledged", 0)
-      @busy_warnings = counts.fetch("in_progress", 0)
       @group_copy_progress = copy_progress(@snapshot, @warning_states)
     end
 
@@ -681,14 +697,18 @@ module DuplicateAdjudicator
       end
     end
 
+    def refresh_link_completion
+      @link_complete = StoragePreview.all_linked?(@snapshot.copies, libraries_by_id)
+    end
+
     def render_comparison
-      load_saved_review
-      acknowledged = @ignored_warnings >= @snapshot.copies.size && (@open_warnings + @busy_warnings).zero?
-      @group_review_label = review_label_for(@digest, @snapshot, acknowledged)
-      if !::SiteSettings.demo_mode_enabled?
-        pair = @storage || StoragePreview.call(@left, @right)
-        @can_make_independent = pair.status == :same_file && pair.source_path != pair.target_path
+      @group_review_label = if @link_complete
+        "All copies linked"
+      elsif @ignored_warnings == @snapshot.copies.size
+        "Warnings acknowledged"
       end
+      @can_make_independent = !::SiteSettings.demo_mode_enabled? &&
+        @storage&.status == :same_file && @storage.source_path != @storage.target_path
 
       if inline?
         render partial: "comparison", layout: false

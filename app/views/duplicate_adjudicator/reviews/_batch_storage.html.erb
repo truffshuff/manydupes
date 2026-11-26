@@ -29,8 +29,9 @@
       </fieldset>
       <label>
         <%= check_box_tag :acknowledge, "1", true, id: nil %>
-        Acknowledge applicable Manyfold warnings after linking
+        Acknowledge Manyfold warnings for linked copies
       </label>
+      <p class="da-muted">Use the cards if you want to acknowledge copies you keep independent.</p>
       <%= button_tag "Link selected copies and keep backups", name: "confirm", value: "1", class: "da-button da-primary" %>
     <% end %>
   <% end %>
@@ -39,7 +40,14 @@
   <% if other.any? %>
     <ul class="da-batch-results">
       <% other.each do |entry| %>
-        <li><%= copy_label(entry.fetch(:copy)) %> · <%= entry[:status] == :shared ? "Already shares the keeper’s file." : entry.fetch(:message) %></li>
+        <li>
+          <%= copy_label(entry.fetch(:copy)) %> · <%= entry[:status] == :shared ? "Already shares the keeper’s file." : entry.fetch(:message) %>
+          <% if entry[:independent] %>
+            <%= button_to "Review independent copy",
+              group_action_url("independent", left: @batch_keeper.public_id, right: entry.fetch(:copy).public_id),
+              class: "da-button", form: {data: {inline_form: true, scroll_to_result: true}} %>
+          <% end %>
+        </li>
       <% end %>
     </ul>
   <% end %>
@@ -60,6 +68,11 @@
           <%= link_to "View saved original", backups_url(anchor: "backup-#{entry[:id]}") %>.
         <% end %>
         <%= entry[:message] %>
+        <% if entry[:independent] %>
+          <%= button_to "Review independent copy",
+            group_action_url("independent", left: @batch_keeper.public_id, right: entry.fetch(:copy).public_id),
+            class: "da-button", form: {data: {inline_form: true, scroll_to_result: true}} %>
+        <% end %>
       </li>
     <% end %>
   </ul>
