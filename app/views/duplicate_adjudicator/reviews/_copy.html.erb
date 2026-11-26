@@ -1,7 +1,9 @@
 <% warning_state = @warning_states[copy.id] %>
-<article class="da-panel da-copy" data-copy-id="<%= copy.public_id %>" data-copy-side="<%= side %>" data-warning-state="<%= warning_state %>">
-  <% if side %>
-    <p class="da-copy-side"><%= side %></p>
+<% keeper = @preferred_copy == copy %>
+<article class="da-panel da-copy" data-copy-id="<%= copy.public_id %>" data-copy-side="<%= side %>"
+    data-keeper="<%= keeper %>" data-warning-state="<%= warning_state %>"<% if @keeper_updated == copy.public_id %> tabindex="-1" data-action-result<% end %>>
+  <% if keeper %>
+    <p class="da-copy-side">Keeper</p>
   <% end %>
   <h2><%= file.filename %></h2>
   <p><%= link_to file.model.name, core_routes.model_path(file.model) %></p>
@@ -46,17 +48,30 @@
   <% end %>
 
   <div class="da-actions">
+    <% unless SiteSettings.demo_mode_enabled? %>
+      <% if keeper %>
+        <%= button_to "Review hard-link plan", group_action_url("storage"), params: {scope: "group"},
+          class: "da-button da-primary", form: {data: {inline_form: true, scroll_to_result: true}} %>
+      <% else %>
+        <%= button_to "Set as keeper", group_action_url("decision", left: copy.public_id),
+          params: {decision: "prefer", preferred: copy.public_id, fingerprint: @snapshot.fingerprint},
+          class: "da-button da-primary", aria: {label: "Set as keeper, #{copy.indexed_path}"},
+          form: {data: {inline_form: true}} %>
+      <% end %>
+    <% end %>
     <%= link_to "Open file", native_file_url(file), class: "da-button" %>
-    <% if side.nil? %>
-      <% compare = {copies: @page, left: @left.public_id, right: @right.public_id} %>
-      <%= link_to "Use on left", group_url(@digest, **compare.merge(left: copy.public_id)), class: "da-button",
-        aria: {label: "Use on left, #{copy.indexed_path}"}, data: {inline_link: true, scroll_to_pair: true} %>
-      <%= link_to "Use on right", group_url(@digest, **compare.merge(right: copy.public_id)), class: "da-button",
-        aria: {label: "Use on right, #{copy.indexed_path}"}, data: {inline_link: true, scroll_to_pair: true} %>
-    <% elsif copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
+    <% if copy.size <= DuplicateAdjudicator::Verification::LIMIT %>
       <%= button_to "Verify checksum", verify_url, params: {copy: file.public_id}, class: "da-button", form: {data: {inline_form: true}} %>
     <% else %>
       <small class="da-muted">Verification limit is 64 MiB.</small>
+    <% end %>
+    <% if @preferred_copy && !keeper && (copy.id != @right.id || @left.id != @preferred_copy.id) %>
+      <%= link_to "Compare with keeper", group_url(@digest, copies: @page, left: @preferred_copy.public_id, right: copy.public_id),
+        class: "da-button da-quiet", data: {inline_link: true, scroll_to_pair: true} %>
+    <% end %>
+    <% if @can_make_independent && copy.id == @right.id %>
+      <%= button_to "Review independent copy", group_action_url("independent"),
+        class: "da-button", form: {data: {inline_form: true, scroll_to_result: true}} %>
     <% end %>
   </div>
 
@@ -76,6 +91,10 @@
       <% end %>
     <% end %>
   </div>
+
+  <% if @warning_copy == copy.public_id && (@copy_review_error || @warning_feedback) %>
+    <p class="da-note" role="status" tabindex="-1" data-action-result><%= @copy_review_error || @warning_feedback %></p>
+  <% end %>
 
   <% if @verification&.fetch(:id) == file.id %>
     <% messages = {

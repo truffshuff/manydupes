@@ -1,5 +1,11 @@
 # Duplicate Adjudicator release history
 
+## [0.9.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.0)
+
+- Set a keeper directly from its comparison card. Review every eligible copy in the group in one plan, with the option to keep individual copies independent.
+- Keep per-copy acknowledgments on the cards and show separate outcomes for newly linked files, already-shared files, and failures.
+- Identify retained originals when a filesystem error interrupts a link.
+
 ## [0.8.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.8.1)
 
 - Clarified installation, review persistence, bulk warning acknowledgment, and the difference between indexed size estimates and space that purging can reclaim.

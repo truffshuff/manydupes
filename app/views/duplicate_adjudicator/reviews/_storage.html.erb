@@ -1,15 +1,15 @@
-<section class="da-panel da-section">
-  <h2>Hard links</h2>
-  <p class="da-muted">A hard link can keep both paths and collection entries while sharing the stored bytes. Edits made in place affect all linked copies.</p>
-  <%= button_to "Review hard-link plan", group_action_url("storage"),
-    class: "da-button", form: {data: {inline_form: true}} %>
+<% if @storage || @storage_feedback || @storage_error || @batch_preview || @batch_results || @independent_plan %>
+<section class="da-panel da-section" aria-label="Hard links">
   <% if @storage_feedback %>
     <p class="da-note" role="status" tabindex="-1" data-action-result><%= @storage_feedback %>
       <%= link_to "View backup batch", backups_url(anchor: @backup_anchor) if @backup_anchor %>
     </p>
   <% end %>
   <% if @storage_error %>
-    <p class="da-note" role="status" tabindex="-1" data-action-result><%= @storage_error %></p>
+    <p class="da-note" role="status" tabindex="-1" data-action-result>
+      <%= @storage_error %>
+      <%= link_to "View saved original", backups_url(anchor: @backup_anchor) if @backup_anchor && !@storage_feedback %>
+    </p>
   <% end %>
   <% if @storage %>
     <% description = {
@@ -46,10 +46,6 @@
     <% end %>
   <% end %>
   <%= render "batch_storage" %>
-  <% if @can_make_independent %>
-    <%= button_to "Review independent copy", group_action_url("independent"),
-      class: "da-button", form: {data: {inline_form: true}} %>
-  <% end %>
   <% if @independent_plan %>
     <p class="da-note" role="status" tabindex="-1" data-action-result>
       Give <code><%= @independent_plan.target %></code> its own storage using the current bytes.
@@ -64,3 +60,4 @@
     <% end %>
   <% end %>
 </section>
+<% end %>

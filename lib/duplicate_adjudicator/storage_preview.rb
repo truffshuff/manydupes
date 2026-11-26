@@ -4,6 +4,15 @@ require "pathname"
 
 module DuplicateAdjudicator
   class StoragePreview
+    ISSUES = {
+      nonlocal: "Both copies must be in filesystem-backed libraries.",
+      unavailable: "A regular file could not be read at one of the indexed paths.",
+      size_changed: "The stored size differs from the index. Rescan the file before linking.",
+      different_filesystems: "The files are on different devices. Hard links require the same mounted filesystem.",
+      linked_elsewhere: "This copy already has other hard links to a different stored file.",
+      different_attributes: "The files have different ownership or permissions."
+    }.freeze
+
     Result = Struct.new(:status, :bytes, :source_path, :target_path, :source, :target, keyword_init: true)
 
     def self.call(left, right)
@@ -15,7 +24,9 @@ module DuplicateAdjudicator
 
       source, replica = [source_path, target_path].map(&:lstat)
       return Result.new(status: :unavailable) unless source.file? && replica.file?
-      return Result.new(status: :same_file) if source.dev == replica.dev && source.ino == replica.ino
+      if source.dev == replica.dev && source.ino == replica.ino
+        return Result.new(status: :same_file, source_path: source_path, target_path: target_path)
+      end
       return Result.new(status: :size_changed) if source.size != left.size || replica.size != right.size
       return Result.new(status: :different_filesystems) if source.dev != replica.dev
       return Result.new(status: :linked_elsewhere) if replica.nlink > 1

@@ -125,15 +125,44 @@ class StorageOperationsTest < Minitest::Test
     end.new([@library_a, @library_b], root: @root.to_s)
     original_inode = @right_path.stat.ino
     plan = failing_store.plan(@left, @right)
-    assert_raises(DuplicateAdjudicator::StorageOperations::Error) do
+    error = assert_raises(DuplicateAdjudicator::StorageOperations::Error) do
       failing_store.apply(@left, @right, digest: @digest, fingerprint: plan.fingerprint, warnings: [])
     end
+    refute error.linked
+    assert_match(/cross mount boundaries/, error.message)
     assert_equal original_inode, @right_path.stat.ino
-    batch = @store.batches.fetch(0)
+    batch = @store.read(error.backup_id)
     assert_equal original_inode, saved_original(batch.fetch("id")).stat.ino
     assert_equal "original_in_place", @store.state(batch)
     @store.finish(batch.fetch("id"), @right, :restore)
     assert_equal original_inode, @right_path.stat.ino
+  end
+
+  def test_a_batch_failure_after_replacement_reports_the_link_and_recoverable_original
+    failing_store = Class.new(DuplicateAdjudicator::StorageOperations) do
+      private
+
+      def write_manifest(batch)
+        raise Errno::ENOSPC if batch["state"] == "linked"
+
+        super
+      end
+    end.new([@library_a, @library_b], root: @root.to_s)
+    original = @right_path.stat.ino
+    plan = failing_store.plan(@left, @right)
+
+    error = assert_raises(DuplicateAdjudicator::StorageOperations::Error) do
+      failing_store.apply_batch_member(@left, @right, digest: @digest,
+        fingerprint: plan.batch_fingerprint, warnings: [])
+    end
+    assert error.linked
+    assert_match(/out of space/, error.message)
+    assert_equal @left_path.stat.ino, @right_path.stat.ino
+    assert_equal original, saved_original(error.backup_id).stat.ino
+    assert_equal "linked", @store.state(@store.read(error.backup_id))
+
+    @store.finish(error.backup_id, @right, :restore)
+    assert_equal original, @right_path.stat.ino
   end
 
   def test_restart_recovers_a_linked_copy_from_a_pending_manifest

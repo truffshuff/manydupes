@@ -15,7 +15,7 @@ module DuplicateAdjudicator
     before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup, :decision, :import_reviews, :independent, :make_independent]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url
+      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url, :copy_label
 
     def index
       @title = "Duplicate Adjudicator"
@@ -41,7 +41,7 @@ module DuplicateAdjudicator
       authorize ::Library, :index?
       return head :not_found unless load_group
 
-      file = [@left, @right].find { |candidate| candidate.public_id == params[:copy] }
+      file = file_choice(params[:copy])
       return head :not_found unless file
 
       @verification = {id: file.id, result: Verification.call(file, @digest)}
@@ -52,11 +52,17 @@ module DuplicateAdjudicator
       authorize ::Library, :index?
       return head :not_found unless load_group
 
+      if params[:scope] == "group"
+        return head :forbidden if ::SiteSettings.demo_mode_enabled?
+        prepare_group_plan
+        return render_comparison
+      end
+
       if params[:bulk] == "1"
         return head :forbidden if ::SiteSettings.demo_mode_enabled?
         targets = selected_targets(params[:targets])
         if targets
-          prepare_batch_plan(targets)
+          prepare_batch_plan(targets.map { |file| @copy_by_id.fetch(file.id) }, keeper: @left, whole_group: false)
         else
           @storage_error = "Choose at least one copy from this page to link to the left copy."
         end
@@ -76,16 +82,42 @@ module DuplicateAdjudicator
       return head :not_found unless load_group
 
       payload = storage_verifier.verified(params[:plan].to_s, purpose: "link-copies")
-      unless params[:confirm] == "1" && payload.is_a?(Hash) && payload["context"] == storage_context
+      if payload.is_a?(Hash) && payload["group"]
+        keeper = @records[@preferred_copy&.id]
+        context = group_storage_context(@preferred_copy) if keeper
+      else
+        context = storage_context
+      end
+      unless params[:confirm] == "1" && payload.is_a?(Hash) && context && payload["context"] == context
         @storage_error = "This confirmation expired or the comparison changed. Review the hard-link plan again."
         return render_comparison
       end
 
       if payload["targets"].is_a?(Hash)
-        targets = selected_targets(payload["targets"].keys)
-        return head :bad_request unless targets
+        fingerprints = payload["targets"]
+        if payload["group"]
+          selected = params[:targets]
+          unless selected.is_a?(Array) && selected.any? && selected.size <= fingerprints.size &&
+              selected.all? { |id| fingerprints.key?(id) }
+            prepare_group_plan
+            @storage_error ||= "Select at least one eligible copy from the reviewed plan."
+            return render_comparison
+          end
+          selected = selected.to_set
+          targets = @snapshot.copies.select { |copy| selected.include?(copy.public_id) }
+        else
+          keeper = @left
+          files = selected_targets(fingerprints.keys)
+          return head :bad_request unless files
 
-        apply_batch_plan(targets, payload["targets"], acknowledge: params[:acknowledge] == "1")
+          targets = files.map { |file| @copy_by_id.fetch(file.id) }
+        end
+        apply_batch_plan(keeper, targets, fingerprints, acknowledge: params[:acknowledge] == "1")
+        if payload["group"]
+          @batch_results.concat(@snapshot.copies.filter_map do |copy|
+            {copy: copy, status: :skipped} if fingerprints.key?(copy.public_id) && !selected.include?(copy.public_id)
+          end)
+        end
         return render_comparison
       end
 
@@ -100,7 +132,8 @@ module DuplicateAdjudicator
       load_warning_counts
       render_comparison
     rescue StorageOperations::Error => error
-      @storage_error = error.message
+      @storage_error = error.linked ? "The paths share storage. Check the saved original. #{error.message}" : error.message
+      @backup_anchor = "backup-#{error.backup_id}" if error.backup_id
       render_comparison
     end
 
@@ -186,6 +219,7 @@ module DuplicateAdjudicator
       return head :not_found if outcome == :missing
 
       changed, copy_ids = outcome
+      @warning_copy = params[:copy]
       load_warning_counts
       save_copy_acknowledgments(action, copy_ids)
       if changed.positive? || copy_ids.empty?
@@ -214,8 +248,12 @@ module DuplicateAdjudicator
       end
 
       review_store.update(@digest, @snapshot.fingerprint) do |state|
+        if %w[keep reviewed later].include?(kind)
+          copy_id ||= state.dig("decision", "copy")
+        end
         state["decision"] = kind == "clear" ? nil : {"type" => kind, "copy" => copy_id}
       end
+      @keeper_updated = copy_id if kind == "prefer"
       render_comparison
     rescue ReviewStore::Error
       @review_feedback = "Manyfold could not save your review. Check the plugin’s review data folder."
@@ -292,7 +330,8 @@ module DuplicateAdjudicator
           state["copies"] |= copy_ids
           saved_count = (@group_copy_progress[:unwarned] & state["copies"]).size
           if state.dig("decision", "type") == "later" && saved_count + @ignored_warnings == @snapshot.copies.size
-            state.delete("decision")
+            preferred = state.dig("decision", "copy")
+            state["decision"] = preferred ? {"type" => "prefer", "copy" => preferred} : nil
           end
         else
           state["copies"] -= copy_ids
@@ -313,39 +352,74 @@ module DuplicateAdjudicator
       targets unless targets.any?(&:nil?)
     end
 
-    def prepare_batch_plan(targets)
+    def prepare_group_plan
+      keeper = @records[@preferred_copy&.id]
+      if keeper
+        copies = @snapshot.copies.reject { |copy| copy.id == keeper.id }
+        prepare_batch_plan(copies, keeper: keeper, whole_group: true)
+      else
+        @storage_error = "Set a keeper on a copy’s card to review the group."
+      end
+    end
+
+    def prepare_batch_plan(copies, keeper:, whole_group:)
       @restore_root = storage_operations.root
-      @batch_preview = targets.map do |file|
-        plan = storage_operations.plan(@left, file)
-        {file: file, plan: plan}
+      @batch_keeper = @copy_by_id.fetch(keeper.id)
+      @batch_whole_group = whole_group
+      records = inventory.records(copies, digest: @digest)
+      planned_paths = Set.new
+      @batch_preview = copies.map do |copy|
+        file = records[copy.id]
+        next({copy: copy, status: :blocked, message: "This copy is no longer in the indexed group."}) unless file
+
+        pair = StoragePreview.call(keeper, file)
+        if pair.status == :same_file
+          next({copy: copy, status: :shared})
+        end
+
+        plan = storage_operations.plan(keeper, file, pair: pair)
+        if !planned_paths.add?(pair.target_path)
+          next({copy: copy, status: :alias_path, message: "Another record in this plan uses this same file path."})
+        end
+        {copy: copy, status: :eligible, plan: plan}
       rescue StorageOperations::Error => error
-        {file: file, error: error.message}
+        {copy: copy, status: :blocked, message: error.message}
       end
       fingerprints = @batch_preview.filter_map do |entry|
-        [entry.fetch(:file).public_id, entry[:plan].batch_fingerprint] if entry[:plan]
+        [entry.fetch(:copy).public_id, entry.fetch(:plan).batch_fingerprint] if entry[:plan]
       end.to_h
       return if fingerprints.empty?
 
-      @batch_token = storage_verifier.generate({"context" => storage_context, "targets" => fingerprints},
+      context = whole_group ? group_storage_context(@batch_keeper) : storage_context
+      @batch_token = storage_verifier.generate({"context" => context, "targets" => fingerprints, "group" => whole_group},
         purpose: "link-copies", expires_in: 15.minutes)
     rescue StorageOperations::Error => error
       @storage_error = error.message
     end
 
-    def apply_batch_plan(targets, fingerprints, acknowledge:)
-      @batch_results = targets.map do |file|
-        if StoragePreview.call(@left, file).status == :same_file
-          next({file: file, error: "This copy already shares the keeper’s storage."})
+    def apply_batch_plan(keeper, copies, fingerprints, acknowledge:)
+      records = inventory.records(copies, digest: @digest)
+      @batch_results = copies.map do |copy|
+        file = records[copy.id]
+        next({copy: copy, status: :failed, message: "This copy is no longer in the indexed group."}) unless file
+
+        if StoragePreview.call(keeper, file).status == :same_file
+          next({copy: copy, status: :shared})
         end
 
-        warning_ids = acknowledge ? planned_warning_ids([file.id]) : []
-        id = storage_operations.apply_batch_member(@left, file, digest: @digest,
+        warning_targets = @snapshot.copies.size == 2 ? [keeper.id, file.id] : [file.id]
+        warning_ids = acknowledge ? planned_warning_ids(warning_targets) : []
+        id = storage_operations.apply_batch_member(keeper, file, digest: @digest,
           fingerprint: fingerprints.fetch(file.public_id), warnings: warning_ids)
-        {file: file, id: id, error: update_storage_warnings(warning_ids, ignored: true)}
+        {copy: copy, status: :linked, id: id, message: update_storage_warnings(warning_ids, ignored: true)}
       rescue StorageOperations::Error => error
-        {file: file, error: error.message}
+        {copy: copy, status: error.linked ? :attention : :failed, id: error.backup_id, message: error.message}
       end
       load_warning_counts
+    end
+
+    def group_storage_context(keeper)
+      [current_user.id.to_s, @digest, keeper.public_id, @snapshot.fingerprint] if keeper
     end
 
     def prepare_storage_plan
@@ -488,12 +562,14 @@ module DuplicateAdjudicator
       @page = raw_page.match?(/\A[0-9]{1,9}\z/) ? raw_page.to_i.clamp(1, @total_pages) : 1
       copies = @snapshot.copies.slice((@page - 1) * Index::COPIES_PER_PAGE, Index::COPIES_PER_PAGE)
       @copy_by_id = @snapshot.copies.index_by(&:id)
-      selected = @snapshot.copies.select { |copy| [params[:left], params[:right]].include?(copy.public_id) }
+      load_saved_review
+      selected_ids = [params[:left], params[:right], @preferred_copy&.public_id]
+      selected = @snapshot.copies.select { |copy| selected_ids.include?(copy.public_id) }
       @records = inventory.records((copies + selected).uniq, digest: @digest)
       @copies = copies.select { |copy| @records.key?(copy.id) }
       return false if @copies.empty?
 
-      @left = file_choice(params[:left]) || @records.fetch(@copies.first.id)
+      @left = file_choice(params[:left]) || @records[@preferred_copy&.id] || @records.fetch(@copies.first.id)
       @right = file_choice(params[:right], excluding: @left.id) ||
         @copies.filter_map { |copy| @records[copy.id] }.find { |file| file.id != @left.id }
       # Keep both cards available when the last page has just one copy.
@@ -504,7 +580,7 @@ module DuplicateAdjudicator
       end
       return false unless @right
 
-      @compare_copies = (@copies + [@copy_by_id.fetch(@left.id), @copy_by_id.fetch(@right.id)]).uniq
+      @compare_copies = (@copies + [@copy_by_id.fetch(@left.id), @copy_by_id.fetch(@right.id), @preferred_copy].compact).uniq
       models = @records.values.map(&:model).uniq
       @model_file_counts = inventory.model_file_counts(models.map(&:id))
       collection_ids = models.flat_map { |model| model.collections.map(&:id) }.uniq
@@ -596,13 +672,22 @@ module DuplicateAdjudicator
       params[:inline] == "1"
     end
 
-    def render_comparison
+    def load_saved_review
       @saved_review = saved_review(@digest)
+      @preferred_copy = nil
+      if @saved_review && @saved_review["fingerprint"] == @snapshot.fingerprint
+        preferred = @saved_review.dig("decision", "copy")
+        @preferred_copy = @snapshot.copies.find { |copy| copy.public_id == preferred } if preferred
+      end
+    end
+
+    def render_comparison
+      load_saved_review
       acknowledged = @ignored_warnings >= @snapshot.copies.size && (@open_warnings + @busy_warnings).zero?
       @group_review_label = review_label_for(@digest, @snapshot, acknowledged)
-      if !::SiteSettings.demo_mode_enabled? && (linked_group_digests.include?(@digest) || @storage&.status == :same_file)
-        distinct_paths = @copy_by_id.fetch(@left.id).storage_key != @copy_by_id.fetch(@right.id).storage_key
-        @can_make_independent = distinct_paths && StoragePreview.call(@left, @right).status == :same_file
+      if !::SiteSettings.demo_mode_enabled?
+        pair = @storage || StoragePreview.call(@left, @right)
+        @can_make_independent = pair.status == :same_file && pair.source_path != pair.target_path
       end
 
       if inline?
@@ -642,9 +727,13 @@ module DuplicateAdjudicator
       group_action_url("verify")
     end
 
-    def group_action_url(action)
+    def group_action_url(action, **options)
       mounted_url("/group/#{@digest}/#{action}", **filter_params.merge(copies: @page,
-        left: @left.public_id, right: @right.public_id))
+        left: @left.public_id, right: @right.public_id).merge(options))
+    end
+
+    def copy_label(copy)
+      "#{libraries_by_id.fetch(copy.library_id).name} / #{copy.indexed_path}"
     end
 
     def asset_url(name)

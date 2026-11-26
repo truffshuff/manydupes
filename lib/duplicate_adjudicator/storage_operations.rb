@@ -8,7 +8,15 @@ require "time"
 
 module DuplicateAdjudicator
   class StorageOperations
-    class Error < StandardError; end
+    class Error < StandardError
+      attr_reader :backup_id, :linked
+
+      def initialize(message, backup_id: nil, linked: false)
+        super(message)
+        @backup_id = backup_id
+        @linked = linked
+      end
+    end
 
     DEFAULT_ROOT = "/mnt/3DPrints/duplicates"
     ID = /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/
@@ -43,7 +51,7 @@ module DuplicateAdjudicator
 
     def plan(left, right, pair: StoragePreview.call(left, right))
       unless pair.status == :possible
-        raise Error, "Select two independent filesystem files to review a hard-link plan."
+        raise Error, StoragePreview::ISSUES.fetch(pair.status, "Both records already share the same stored file.")
       end
 
       paths = [pair.source_path, pair.target_path]
@@ -68,10 +76,13 @@ module DuplicateAdjudicator
       raise Error, "The files or restore folder could not be checked."
     end
 
-    def apply(left, right, digest:, fingerprint:, warnings:)
+    def apply(left, right, digest:, fingerprint:, warnings:, batch_member: false)
+      batch = nil
+      backup_saved = false
       with_lock do
         checked = plan(left, right)
-        unless checked.fingerprint == fingerprint
+        expected = batch_member ? checked.batch_fingerprint : checked.fingerprint
+        unless expected == fingerprint
           raise Error, "The files changed after the preview. Review the hard-link plan again."
         end
 
@@ -95,6 +106,7 @@ module DuplicateAdjudicator
         make_backup_directories(batch_directory, backup.dirname)
         assert_unchanged!(pair.target_path, pair.target)
         File.link(pair.target_path, backup)
+        backup_saved = true
         sync_directory(backup.dirname)
         unless identity(regular_stat(backup)) == batch.fetch("original_inode")
           raise Error, "The duplicate changed while its backup was being made. Check Restore backups."
@@ -106,19 +118,24 @@ module DuplicateAdjudicator
         write_manifest(batch.merge("state" => "linked"))
         id
       end
-    rescue Errno::EXDEV
-      raise Error, "The paths are on different mounts. Check the container’s bind mount before retrying."
-    rescue SystemCallError
-      raise Error, "The storage operation could not finish. Check Restore backups for any retained original."
+    rescue Error, SystemCallError => error
+      raise if error.is_a?(Error) && !backup_saved
+
+      message = case error
+      when Error then error.message
+      when Errno::EXDEV then "The paths cross mount boundaries. Check the Manyfold bind mount."
+      when Errno::EPERM, Errno::EACCES, Errno::EROFS
+        "The filesystem denied the operation (#{error.class.name}). Check mount options, file ownership, and directory permissions."
+      when Errno::ENOSPC, Errno::EDQUOT then "The filesystem is out of space or has reached its quota."
+      else "The filesystem could not finish the operation (#{error.class.name})."
+      end
+
+      linked = backup_saved && state(batch) == "linked"
+      raise Error.new(message, backup_id: backup_saved ? batch.fetch("id") : nil, linked: linked)
     end
 
     def apply_batch_member(left, right, digest:, fingerprint:, warnings:)
-      pair = plan(left, right)
-      unless pair.batch_fingerprint == fingerprint
-        raise Error, "The stored paths changed after the batch preview."
-      end
-
-      apply(left, right, digest: digest, fingerprint: pair.fingerprint, warnings: warnings)
+      apply(left, right, digest: digest, fingerprint: fingerprint, warnings: warnings, batch_member: true)
     end
 
     def independent_plan(left, right)

@@ -1,64 +1,65 @@
-<% if @compare_copies.size > 2 && !SiteSettings.demo_mode_enabled? %>
-  <details class="da-batch-picker" <%= "open" if @batch_preview %>>
-    <summary>Choose multiple copies to link</summary>
-    <%= form_with url: group_action_url("storage"), method: :post, local: true,
-      class: "da-storage-form", data: {inline_form: true} do %>
-      <%= hidden_field_tag :bulk, "1", id: nil %>
-      <p class="da-muted">The left copy is the keeper. Choose from the copies on this page.</p>
+<% if @batch_preview %>
+  <% eligible = @batch_preview.count { |entry| entry[:status] == :eligible } %>
+  <div class="da-storage-paths" tabindex="-1" data-action-result>
+    <h2>Hard-link plan</h2>
+    <p>Keeper <code><%= copy_label(@batch_keeper) %></code></p>
+    <p><%= pluralize(eligible, "copy") %> eligible to link. Original files are retained under <code><%= @restore_root %></code>.</p>
+    <% if eligible.positive? %>
+      <p class="da-muted">Uncheck any copies you want to keep independent. Both Manyfold paths stay in place. In-place edits will affect linked copies.</p>
+    <% end %>
+  </div>
+  <% if @batch_token %>
+    <%= form_with url: group_action_url("link"), method: :post, local: true, class: "da-storage-form",
+      data: {inline_form: true, scroll_to_result: true, link_plan: true} do %>
+      <%= hidden_field_tag :plan, @batch_token, id: nil %>
       <fieldset class="da-batch-targets">
-        <legend>Copies to replace with hard links</legend>
-        <% @compare_copies.reject { |copy| copy.id == @left.id }.each do |copy| %>
-          <label><%= check_box_tag "targets[]", copy.public_id,
-            @batch_preview ? @batch_preview.any? { |entry| entry.fetch(:file).id == copy.id } : copy.id == @right.id, id: nil %>
-            <%= @records.fetch(copy.id).model.library.name %> / <%= copy.indexed_path %></label>
+        <legend>Copies to link</legend>
+        <% @batch_preview.select { |entry| entry[:status] == :eligible }.each do |entry| %>
+          <label>
+            <% if @batch_whole_group %>
+              <%= check_box_tag "targets[]", entry.fetch(:copy).public_id, true, id: nil %>
+            <% end %>
+            <span><%= copy_label(entry.fetch(:copy)) %>
+              <% if (bytes = entry.fetch(:plan).pair.bytes) %>
+                <span class="da-muted">· Up to <%= number_to_human_size(bytes) %> after purge</span>
+              <% end %>
+            </span>
+          </label>
         <% end %>
       </fieldset>
-      <%= submit_tag "Review batch hard-link plan", class: "da-button" %>
+      <label>
+        <%= check_box_tag :acknowledge, "1", true, id: nil %>
+        Acknowledge applicable Manyfold warnings after linking
+      </label>
+      <%= button_tag "Link selected copies and keep backups", name: "confirm", value: "1", class: "da-button da-primary" %>
     <% end %>
-  </details>
-<% end %>
+  <% end %>
 
-<% if @batch_preview %>
-  <p class="da-note" role="status" tabindex="-1" data-action-result>Hard-link plan for <%= pluralize(@batch_preview.size, "selected copy") %>.</p>
-  <ul class="da-batch-results">
-    <% @batch_preview.each do |entry| %>
-      <li>
-        <% if (plan = entry[:plan]) %>
-          <code><%= plan.target %></code> can link to <code><%= plan.source %></code>.
-          Its original will be saved under <code><%= @restore_root %></code>.
-          <% if plan.pair.bytes %>Up to <%= number_to_human_size(plan.pair.bytes) %> after purge.<% end %>
-        <% else %>
-          <%= entry.fetch(:file).model.name %> / <%= entry.fetch(:file).filename %>. <%= entry[:error] %>
-        <% end %>
-      </li>
-    <% end %>
-  </ul>
-  <% if @batch_token %>
-    <%= form_with url: group_action_url("link"), method: :post, local: true,
-      class: "da-storage-form", data: {inline_form: true} do %>
-      <%= hidden_field_tag :plan, @batch_token, id: nil %>
-      <label><%= check_box_tag :confirm, "1", false, id: nil, required: true %>
-        Link the eligible copies and keep each original as a backup</label>
-      <label><%= check_box_tag :acknowledge, "1", true, id: nil %>
-        Acknowledge Manyfold warnings for the copies linked successfully</label>
-      <%= submit_tag "Link selected copies and keep backups", class: "da-button da-primary" %>
-    <% end %>
+  <% other = @batch_preview.reject { |entry| entry[:status] == :eligible } %>
+  <% if other.any? %>
+    <ul class="da-batch-results">
+      <% other.each do |entry| %>
+        <li><%= copy_label(entry.fetch(:copy)) %> · <%= entry[:status] == :shared ? "Already shares the keeper’s file." : entry.fetch(:message) %></li>
+      <% end %>
+    </ul>
   <% end %>
 <% end %>
 
 <% if @batch_results %>
-  <p class="da-note" role="status" tabindex="-1" data-action-result>
-    Linked <%= @batch_results.count { |entry| entry[:id] } %> of <%= @batch_results.size %> copies.
-  </p>
+  <% counts = @batch_results.map { |entry| entry.fetch(:status) }.tally %>
+  <% labels = {linked: "linked", shared: "already shared the keeper’s file", attention: "linked, backup needs review", failed: "could not link", skipped: "left unchanged"} %>
+  <div class="da-note da-storage-paths" role="status" tabindex="-1" data-action-result>
+    <h2>Hard-link results</h2>
+    <p><%= labels.filter_map { |status, label| "#{counts[status]} #{label}" if counts[status] }.join(" · ") %></p>
+  </div>
   <ul class="da-batch-results">
     <% @batch_results.each do |entry| %>
-      <% file = entry.fetch(:file) %>
       <li>
-        <%= file.model.library.name %> / <%= @copy_by_id.fetch(file.id).indexed_path %>.
+        <%= copy_label(entry.fetch(:copy)) %> · <%= labels.fetch(entry.fetch(:status)).capitalize %>.
         <% if entry[:id] %>
           <%= link_to "View saved original", backups_url(anchor: "backup-#{entry[:id]}") %>.
         <% end %>
-        <%= entry[:error] %>
+        <%= entry[:message] %>
       </li>
     <% end %>
   </ul>
