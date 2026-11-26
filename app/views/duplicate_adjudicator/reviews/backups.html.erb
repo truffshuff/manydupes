@@ -12,6 +12,9 @@
     <% if @restore_root %>
       <p class="da-backup-root">Restore folder <code><%= @restore_root %></code></p>
     <% end %>
+    <% if @pending_bytes&.positive? %>
+      <p class="da-panel"><strong><%= number_to_human_size(@pending_bytes) %> pending purge</strong> as estimated from allocated backup space.</p>
+    <% end %>
     <% if @batches.empty? && !@backup_error %>
       <p class="da-muted">Saved originals will appear here after you link copies.</p>
     <% end %>
@@ -21,8 +24,8 @@
       <section class="da-panel da-section da-backup" id="backup-<%= id %>">
         <h2><%= batch.fetch("target") %></h2>
         <p class="da-muted"><%= batch.fetch("created_at") %></p>
-        <% if state == "linked" %>
-          <p>Linked · <%= batch["allocation_bytes"] ? "#{number_to_human_size(batch['allocation_bytes'])} pending purge" : "Original retained" %></p>
+        <% if %w[linked detached].include?(state) %>
+          <p><%= state == "detached" ? "Independent copy" : "Linked" %> · <%= batch["allocation_bytes"] ? "#{number_to_human_size(batch['allocation_bytes'])} pending purge" : "Original retained" %></p>
         <% elsif state == "original_in_place" %>
           <p>The original is still at its Manyfold path. Finish recovery to clear this record’s saved copy.</p>
         <% elsif state == "restored" %>
@@ -33,20 +36,20 @@
           <p class="da-note">The recorded paths need manual review. The plugin leaves any saved original in place.</p>
         <% end %>
 
-        <% if %w[linked original_in_place attention].include?(state) %>
+        <% if %w[linked detached original_in_place attention].include?(state) %>
           <p class="da-backup-path">Saved original <code><%= @restore_root.join(id, "files", batch.fetch("target")) %></code></p>
         <% end %>
 
-        <% if !SiteSettings.demo_mode_enabled? && %w[linked original_in_place].include?(state) %>
+        <% if !SiteSettings.demo_mode_enabled? && %w[linked detached original_in_place].include?(state) %>
           <div class="da-actions da-backup-actions">
             <%= form_with url: backup_action_url(id, "restore"), method: :post, local: true, class: "da-storage-form" do %>
               <label>
                 <%= check_box_tag :confirm, "1", false, id: nil, required: true %>
-                <%= state == "linked" ? "Put the saved original back at its Manyfold path" : "Keep the original at its Manyfold path" %>
+                <%= state != "original_in_place" ? "Put the saved original back at its Manyfold path" : "Keep the original at its Manyfold path" %>
               </label>
-              <%= submit_tag(state == "linked" ? "Restore original" : "Finish recovery", class: "da-button da-primary") %>
+              <%= submit_tag(state != "original_in_place" ? "Restore original" : "Finish recovery", class: "da-button da-primary") %>
             <% end %>
-            <% if state == "linked" %>
+            <% if %w[linked detached].include?(state) %>
               <%= form_with url: backup_action_url(id, "purge"), method: :post, local: true, class: "da-storage-form" do %>
                 <label>
                   <%= check_box_tag :confirm, "1", false, id: nil, required: true %>

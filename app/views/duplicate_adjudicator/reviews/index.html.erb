@@ -1,6 +1,6 @@
 <%= render "assets" %>
 
-<div class="da" data-turbo="false" data-queue-view="<%= @review_view || "pending" %>" data-review-namespace="<%= review_namespace %>">
+<div class="da" data-turbo="false" data-queue-view="<%= @review_view || "pending" %>" data-review-namespace="<%= review_namespace %>" data-import-url="<%= review_import_url %>" data-import-csrf="<%= form_authenticity_token %>">
   <header class="da-header">
     <h1>Duplicate Adjudicator</h1>
     <p>Review files that share a checksum in Manyfold’s index.</p>
@@ -14,7 +14,7 @@
       <%= link_to "All groups", queue_url(review: "all"),
         aria: {current: @review_view == "all" ? "page" : nil} %>
     </nav>
-    <%= form_with url: queue_url(library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters" do %>
+    <%= form_with url: queue_url(library: nil, q: nil, after: nil, sort: nil), method: :get, local: true, class: "da-panel da-filters" do %>
       <%= hidden_field_tag :review, @review_view, id: nil if @review_view %>
       <div>
         <%= label_tag :library, "Library" %>
@@ -24,6 +24,10 @@
         <%= label_tag :q, "Filename, folder, or model" %>
         <%= search_field_tag :q, @search, maxlength: 160, class: "form-control" %>
       </div>
+      <div>
+        <%= label_tag :sort, "Sort by" %>
+        <%= select_tag :sort, options_for_select([["Checksum order", ""], ["Largest estimated savings", "savings"]], @sort), class: "form-select" %>
+      </div>
       <%= submit_tag "Filter", class: "da-button da-primary" %>
       <% if @library || @search.present? %>
         <%= link_to "Clear", queue_url(library: nil, q: nil, after: nil), class: "da-button" %>
@@ -32,6 +36,10 @@
 
     <% if @library || @search.present? %>
       <p class="da-muted">A group is listed if any copy matches the filter. Opening it shows all indexed copies you can access.</p>
+    <% end %>
+
+    <% if @sort %>
+      <p class="da-muted">Savings estimates use indexed file sizes. The hard-link plan checks storage eligibility and allocated space.</p>
     <% end %>
 
     <% if @groups.empty? %>

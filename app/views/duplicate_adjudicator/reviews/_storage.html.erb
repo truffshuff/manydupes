@@ -5,7 +5,7 @@
     class: "da-button", form: {data: {inline_form: true}} %>
   <% if @storage_feedback %>
     <p class="da-note" role="status" tabindex="-1" data-action-result><%= @storage_feedback %>
-      <%= link_to "View backup batch", backups_url(anchor: @backup_anchor) %>
+      <%= link_to "View backup batch", backups_url(anchor: @backup_anchor) if @backup_anchor %>
     </p>
   <% end %>
   <% if @storage_error %>
@@ -43,6 +43,24 @@
         Acknowledge the applicable Manyfold warnings after verification
       </label>
       <%= submit_tag "Link copies and keep backup", class: "da-button da-primary" %>
+    <% end %>
+  <% end %>
+  <%= render "batch_storage" %>
+  <% if @can_make_independent %>
+    <%= button_to "Review independent copy", group_action_url("independent"),
+      class: "da-button", form: {data: {inline_form: true}} %>
+  <% end %>
+  <% if @independent_plan %>
+    <p class="da-note" role="status" tabindex="-1" data-action-result>
+      Give <code><%= @independent_plan.target %></code> its own storage using the current bytes.
+      This needs space for a separate file of <%= number_to_human_size(@independent_plan.stat.size) %>.
+    </p>
+    <%= form_with url: group_action_url("make-independent"), method: :post, local: true,
+      class: "da-storage-form", data: {inline_form: true} do %>
+      <%= hidden_field_tag :plan, @independent_token, id: nil %>
+      <label><%= check_box_tag :confirm, "1", false, id: nil, required: true %>
+        Store the right copy independently so I can edit it separately</label>
+      <%= submit_tag "Make right copy independent", class: "da-button da-primary" %>
     <% end %>
   <% end %>
 </section>

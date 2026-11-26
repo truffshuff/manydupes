@@ -233,3 +233,10 @@
 
 .da .da-copy-review { border-block-start: 1px solid var(--da-line); padding-block-start: 8px; inline-size: 100%; }
 .da .da-copy-review p { font-size: 12px; }
+
+.da .da-batch-picker summary { color: var(--da-accent); cursor: pointer; }
+.da .da-batch-picker[open] form { margin-block-start: 8px; }
+.da .da-batch-targets { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--da-line); }
+.da .da-batch-targets legend { float: none; margin: 0; width: auto; font: inherit; font-weight: 600; }
+.da :is(.da-batch-targets, .da-batch-results, .da-section code) { overflow-wrap: anywhere; min-inline-size: 0; }
+.da .da-batch-results { padding-inline-start: 20px; }

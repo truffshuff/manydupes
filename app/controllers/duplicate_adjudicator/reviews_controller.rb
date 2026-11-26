@@ -12,21 +12,21 @@ module DuplicateAdjudicator
 
     before_action :authenticate_admin_user!
     before_action :private_response
-    before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup]
+    before_action :require_html, only: [:index, :show, :verify, :storage, :warnings, :link_copies, :backups, :restore_copy, :purge_backup, :decision, :import_reviews, :independent, :make_independent]
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
-      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url
+      :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url
 
     def index
       @title = "Duplicate Adjudicator"
       set_filters
       refill = params[:refill] == "1" && @review_view.nil?
-      @queue_entry_after = refill ? checksum(params[:queue_after]) : @after
+      @queue_entry_after = refill ? queue_cursor(params[:queue_after]) : @after
       size = refill ? QUEUE_REFILL_SIZE : Index::GROUPS_PER_PAGE
-      rows = inventory.groups(library_id: @library&.id, search: @search, after: @after, limit: size + 1)
+      rows = inventory.groups(library_id: @library&.id, search: @search, after: @after, sort: @sort, limit: size + 1)
       @groups = rows.first(size)
       load_queue_review
-      @next_page = @groups.last.digest if rows.size > size && @groups.any?
+      @next_page = @groups.last.cursor(@sort) if rows.size > size && @groups.any?
       render partial: "queue_refill", layout: false if refill
     end
 
@@ -52,6 +52,17 @@ module DuplicateAdjudicator
       authorize ::Library, :index?
       return head :not_found unless load_group
 
+      if params[:bulk] == "1"
+        return head :forbidden if ::SiteSettings.demo_mode_enabled?
+        targets = selected_targets(params[:targets])
+        if targets
+          prepare_batch_plan(targets)
+        else
+          @storage_error = "Choose at least one copy from this page to link to the left copy."
+        end
+        return render_comparison
+      end
+
       @storage = StoragePreview.call(@left, @right)
       if @storage.status == :possible && !::SiteSettings.demo_mode_enabled?
         prepare_storage_plan
@@ -70,6 +81,14 @@ module DuplicateAdjudicator
         return render_comparison
       end
 
+      if payload["targets"].is_a?(Hash)
+        targets = selected_targets(payload["targets"].keys)
+        return head :bad_request unless targets
+
+        apply_batch_plan(targets, payload["targets"], acknowledge: params[:acknowledge] == "1")
+        return render_comparison
+      end
+
       warning_ids = planned_warning_ids if params[:acknowledge] == "1"
       batch_id = storage_operations.apply(@left, @right, digest: @digest, fingerprint: payload.fetch("fingerprint"),
         warnings: warning_ids || [])
@@ -79,6 +98,41 @@ module DuplicateAdjudicator
       @storage_error = warning_error
       @backup_anchor = "backup-#{batch_id}"
       load_warning_counts
+      render_comparison
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+      render_comparison
+    end
+
+    def independent
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_found unless load_group
+
+      @independent_plan = storage_operations.independent_plan(@left, @right)
+      @independent_token = storage_verifier.generate(
+        {"context" => storage_context, "fingerprint" => @independent_plan.fingerprint},
+        purpose: "make-independent", expires_in: 15.minutes
+      )
+      render_comparison
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+      render_comparison
+    end
+
+    def make_independent
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_found unless load_group
+
+      plan = storage_verifier.verified(params[:plan].to_s, purpose: "make-independent")
+      unless params[:confirm] == "1" && plan.is_a?(Hash) && plan["context"] == storage_context
+        @storage_error = "The plan expired or the comparison changed. Review the independent copy again."
+        return render_comparison
+      end
+
+      storage_operations.make_independent(@left, @right, digest: @digest, fingerprint: plan.fetch("fingerprint"))
+      @storage_feedback = "The right copy now has its own storage."
       render_comparison
     rescue StorageOperations::Error => error
       @storage_error = error.message
@@ -123,8 +177,8 @@ module DuplicateAdjudicator
         changed.each { |warning| warning.update!(ignored: ignore) }
 
         warned_ids = warnings.map(&:problematic_id).to_set
-        browser_targets = ignore ? targets.reject { |copy| warned_ids.include?(copy.id) } : targets
-        [changed.length, browser_targets.map(&:public_id)]
+        review_targets = ignore ? targets.reject { |copy| warned_ids.include?(copy.id) } : targets
+        [changed.length, review_targets.map(&:public_id)]
       end
       if outcome == :stale
         return render plain: "The indexed copies changed. Reload this comparison and review them again.", status: :conflict
@@ -132,13 +186,76 @@ module DuplicateAdjudicator
       return head :not_found if outcome == :missing
 
       changed, copy_ids = outcome
-      @warning_receipt = {action: action, copies: copy_ids}
       load_warning_counts
+      save_copy_acknowledgments(action, copy_ids)
       if changed.positive? || copy_ids.empty?
         @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
           "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
       end
       render_comparison
+    end
+
+    def decision
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_found unless load_group
+
+      unless params[:fingerprint] == @snapshot.fingerprint
+        return head :conflict
+      end
+
+      kind = params[:decision]
+      return head :bad_request unless %w[prefer keep reviewed later clear].include?(kind)
+      copy_id = params[:preferred].presence if %w[prefer reviewed].include?(kind)
+      return head :bad_request if copy_id && @snapshot.copies.none? { |copy| copy.public_id == copy_id }
+      if kind == "prefer" && !copy_id
+        @review_feedback = "Choose a preferred copy first."
+        return render_comparison
+      end
+
+      review_store.update(@digest, @snapshot.fingerprint) do |state|
+        state["decision"] = kind == "clear" ? nil : {"type" => kind, "copy" => copy_id}
+      end
+      render_comparison
+    rescue ReviewStore::Error
+      @review_feedback = "Manyfold could not save your review. Check the plugin’s review data folder."
+      render_comparison
+    end
+
+    def import_reviews
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      raw = params[:reviews]
+      return head :bad_request unless raw.is_a?(String) && raw.bytesize <= 256_000
+
+      entries = JSON.parse(raw)
+      return head :bad_request unless entries.is_a?(Array) && entries.size <= 50
+
+      set_filters
+      digests = entries.filter_map { |entry| checksum(entry["digest"]) if entry.is_a?(Hash) }.uniq
+      snapshots = inventory.snapshots(digests)
+      entries.each do |entry|
+        next unless entry.is_a?(Hash)
+
+        digest = checksum(entry["digest"])
+        snapshot = snapshots[digest]
+        next unless snapshot && snapshot.copies.size > 1 && snapshot.fingerprint == entry["fingerprint"]
+
+        ids = snapshot.copies.map(&:public_id)
+        copied = Array(entry["copies"]) & ids
+        decision = entry["decision"]
+        review_store.update(digest, snapshot.fingerprint, import: true) do |state|
+          state["copies"] = copied
+          if decision.is_a?(Hash) && %w[prefer keep reviewed later].include?(decision["type"])
+            state["decision"] = {"type" => decision["type"], "copy" => ids.include?(decision["copy"]) ? decision["copy"] : nil}
+          end
+        end
+      end
+      head :no_content
+    rescue JSON::ParserError
+      head :bad_request
+    rescue ReviewStore::Error
+      head :service_unavailable
     end
 
     def theme
@@ -150,6 +267,86 @@ module DuplicateAdjudicator
     end
 
     private
+
+    def review_store
+      @review_store ||= ReviewStore.new(
+        ENV.fetch("DUPLICATE_ADJUDICATOR_REVIEW_ROOT") do
+          File.join(ENV.fetch("PLUGINS_PATH", Rails.root.join("plugins").to_s), ".duplicate-adjudicator-reviews")
+        end, current_user.id
+      )
+    end
+
+    def saved_review(digest)
+      review_store.read(digest)
+    rescue ReviewStore::Error
+      nil
+    end
+
+    def review_import_url
+      mounted_url("/review-import")
+    end
+
+    def save_copy_acknowledgments(action, copy_ids)
+      review_store.update(@digest, @snapshot.fingerprint) do |state|
+        if action == "acknowledge"
+          state["copies"] |= copy_ids
+          saved_count = (@group_copy_progress[:unwarned] & state["copies"]).size
+          if state.dig("decision", "type") == "later" && saved_count + @ignored_warnings == @snapshot.copies.size
+            state.delete("decision")
+          end
+        else
+          state["copies"] -= copy_ids
+          if %w[keep reviewed].include?(state.dig("decision", "type"))
+            preferred = state.dig("decision", "copy")
+            state["decision"] = preferred ? {"type" => "prefer", "copy" => preferred} : nil
+          end
+        end
+      end
+    rescue ReviewStore::Error
+      @copy_review_error = "Manyfold could not save the copy acknowledgments. Existing Manyfold warnings can be checked on the Problems screen."
+    end
+
+    def selected_targets(values)
+      return unless values.is_a?(Array) && values.any? && values.size <= @compare_copies.size
+
+      targets = values.uniq.map { |public_id| file_choice(public_id, excluding: @left.id) }
+      targets unless targets.any?(&:nil?)
+    end
+
+    def prepare_batch_plan(targets)
+      @restore_root = storage_operations.root
+      @batch_preview = targets.map do |file|
+        plan = storage_operations.plan(@left, file)
+        {file: file, plan: plan}
+      rescue StorageOperations::Error => error
+        {file: file, error: error.message}
+      end
+      fingerprints = @batch_preview.filter_map do |entry|
+        [entry.fetch(:file).public_id, entry[:plan].batch_fingerprint] if entry[:plan]
+      end.to_h
+      return if fingerprints.empty?
+
+      @batch_token = storage_verifier.generate({"context" => storage_context, "targets" => fingerprints},
+        purpose: "link-copies", expires_in: 15.minutes)
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+    end
+
+    def apply_batch_plan(targets, fingerprints, acknowledge:)
+      @batch_results = targets.map do |file|
+        if StoragePreview.call(@left, file).status == :same_file
+          next({file: file, error: "This copy already shares the keeper’s storage."})
+        end
+
+        warning_ids = acknowledge ? planned_warning_ids([file.id]) : []
+        id = storage_operations.apply_batch_member(@left, file, digest: @digest,
+          fingerprint: fingerprints.fetch(file.public_id), warnings: warning_ids)
+        {file: file, id: id, error: update_storage_warnings(warning_ids, ignored: true)}
+      rescue StorageOperations::Error => error
+        {file: file, error: error.message}
+      end
+      load_warning_counts
+    end
 
     def prepare_storage_plan
       @restore_root = storage_operations.root
@@ -174,8 +371,7 @@ module DuplicateAdjudicator
       @storage_operations ||= StorageOperations.new(@libraries)
     end
 
-    def planned_warning_ids
-      ids = @snapshot.copies.size == 2 ? [@left.id, @right.id] : [@right.id]
+    def planned_warning_ids(ids = @snapshot.copies.size == 2 ? [@left.id, @right.id] : [@right.id])
       problems = group_warnings.where(problematic_id: ids, ignored: false, in_progress: false).to_a
       problems.each { |problem| authorize problem, :update? }
       problems.map(&:id)
@@ -200,6 +396,7 @@ module DuplicateAdjudicator
       @libraries = policy_scope(::Library).to_a
       @restore_root = storage_operations.root
       @batches = storage_operations.batches
+      @pending_bytes = storage_operations.pending_bytes(@batches)
       @backup_states = @batches.to_h { |batch| [batch.fetch("id"), storage_operations.state(batch)] }
     rescue StorageOperations::Error => error
       @backup_error = error.message
@@ -263,7 +460,8 @@ module DuplicateAdjudicator
       @libraries = policy_scope(::Library).to_a
       @library = @libraries.find { |record| record.public_id == params[:library] } if params[:library].is_a?(String)
       @search = params[:q].is_a?(String) ? params[:q].strip[0, 160] : ""
-      @after = checksum(params[:after])
+      @sort = params[:sort] == "savings" ? "savings" : nil
+      @after = queue_cursor(params[:after])
       @review_view = params[:review] == "all" ? "all" : nil
     end
 
@@ -307,9 +505,19 @@ module DuplicateAdjudicator
       return false unless @right
 
       @compare_copies = (@copies + [@copy_by_id.fetch(@left.id), @copy_by_id.fetch(@right.id)]).uniq
-      @model_file_counts = inventory.model_file_counts(@records.values.map(&:model_id).uniq)
+      models = @records.values.map(&:model).uniq
+      @model_file_counts = inventory.model_file_counts(models.map(&:id))
+      collection_ids = models.flat_map { |model| model.collections.map(&:id) }.uniq
+      visible_collections = policy_scope(::Collection).where(id: collection_ids).index_by(&:id)
+      @collections_by_model = models.to_h do |model|
+        [model.id, model.collections.filter_map { |collection| visible_collections[collection.id] }]
+      end
       load_warning_counts
-      @next_group = inventory.groups(library_id: @library&.id, search: @search, after: @digest, limit: 1).first unless inline?
+      unless inline?
+        sizes = @snapshot.copies.map(&:size)
+        cursor = @sort == "savings" ? "#{sizes.sum - sizes.max}-#{@digest}" : @digest
+        @next_group = inventory.groups(library_id: @library&.id, search: @search, after: cursor, sort: @sort, limit: 1).first
+      end
       true
     end
 
@@ -325,6 +533,7 @@ module DuplicateAdjudicator
       @queue_snapshots = inventory.snapshots(@groups.map(&:digest))
       copy_ids = @queue_snapshots.values.flat_map { |snapshot| snapshot.copies.map(&:id) }
       states = warning_states(duplicate_warnings.where(problematic_id: copy_ids))
+      @queue_saved_reviews = @queue_snapshots.keys.to_h { |digest| [digest, saved_review(digest)] }
       @queue_copy_progress = @queue_snapshots.transform_values { |snapshot| copy_progress(snapshot, states) }
       @queue_review = @queue_snapshots.to_h do |digest, snapshot|
         progress = @queue_copy_progress.fetch(digest)
@@ -388,8 +597,13 @@ module DuplicateAdjudicator
     end
 
     def render_comparison
+      @saved_review = saved_review(@digest)
       acknowledged = @ignored_warnings >= @snapshot.copies.size && (@open_warnings + @busy_warnings).zero?
       @group_review_label = review_label_for(@digest, @snapshot, acknowledged)
+      if !::SiteSettings.demo_mode_enabled? && (linked_group_digests.include?(@digest) || @storage&.status == :same_file)
+        distinct_paths = @copy_by_id.fetch(@left.id).storage_key != @copy_by_id.fetch(@right.id).storage_key
+        @can_make_independent = distinct_paths && StoragePreview.call(@left, @right).status == :same_file
+      end
 
       if inline?
         render partial: "comparison", layout: false
@@ -406,8 +620,14 @@ module DuplicateAdjudicator
       value if value.is_a?(String) && Index::SHA512.match?(value)
     end
 
+    def queue_cursor(value)
+      return checksum(value) unless @sort == "savings"
+
+      value if value.is_a?(String) && /\A[0-9]{1,24}-[0-9a-f]{128}\z/.match?(value)
+    end
+
     def filter_params
-      {library: @library&.public_id, q: @search.presence, after: @after, review: @review_view}
+      {library: @library&.public_id, q: @search.presence, after: @after, review: @review_view, sort: @sort}
     end
 
     def queue_url(**options)

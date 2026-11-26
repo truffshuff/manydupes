@@ -14,7 +14,8 @@ module DuplicateAdjudicator
     ID = /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/
     READ_FILE = File::RDONLY | File::NOFOLLOW | File::NONBLOCK
 
-    Plan = Struct.new(:pair, :source, :target, :fingerprint, keyword_init: true)
+    Plan = Struct.new(:pair, :source, :target, :fingerprint, :batch_fingerprint, keyword_init: true)
+    IndependentPlan = Struct.new(:source, :target, :fingerprint, :stat, keyword_init: true)
 
     attr_reader :root
 
@@ -59,7 +60,10 @@ module DuplicateAdjudicator
       fingerprint = Digest::SHA256.hexdigest(JSON.generate(
         [@root.to_s, source, target, stamp(pair.source), stamp(pair.target)]
       ))
-      Plan.new(pair: pair, source: source, target: target, fingerprint: fingerprint)
+      batch_fingerprint = Digest::SHA256.hexdigest(JSON.generate(
+        [@root.to_s, source, target, content_stamp(pair.source), stamp(pair.target)]
+      ))
+      Plan.new(pair: pair, source: source, target: target, fingerprint: fingerprint, batch_fingerprint: batch_fingerprint)
     rescue SystemCallError, ArgumentError
       raise Error, "The files or restore folder could not be checked."
     end
@@ -108,6 +112,52 @@ module DuplicateAdjudicator
       raise Error, "The storage operation could not finish. Check Restore backups for any retained original."
     end
 
+    def apply_batch_member(left, right, digest:, fingerprint:, warnings:)
+      pair = plan(left, right)
+      unless pair.batch_fingerprint == fingerprint
+        raise Error, "The stored paths changed after the batch preview."
+      end
+
+      apply(left, right, digest: digest, fingerprint: pair.fingerprint, warnings: warnings)
+    end
+
+    def independent_plan(left, right)
+      source = StoragePreview.indexed_path(left)
+      target = StoragePreview.indexed_path(right)
+      unless source && target && source != target && inside?(target, @mount) && target.dirname.writable?
+        raise Error, "Choose one of two linked copies at distinct, writable filesystem paths."
+      end
+
+      original = target.lstat
+      unless original.file? && original.nlink > 1 && original.size == right.size && identity(source.lstat) == identity(original)
+        raise Error, "The selected paths must still refer to the same stored file."
+      end
+
+      fingerprint = Digest::SHA256.hexdigest(JSON.generate([source.to_s, target.to_s, stamp(original)]))
+      IndependentPlan.new(source: source, target: target, fingerprint: fingerprint, stat: original)
+    rescue SystemCallError, ArgumentError
+      raise Error, "The stored paths could not be checked."
+    end
+
+    def make_independent(left, right, digest:, fingerprint:)
+      with_lock do
+        plan = independent_plan(left, right)
+        raise Error, "The linked file changed. Preview the independent copy again." unless plan.fingerprint == fingerprint
+
+        original = plan.stat
+        verify!(plan.target, digest, original)
+        batches_to_update = batches.select do |batch|
+          batch["target_file"] == right.public_id && batch["digest"] == digest && state(batch) == "linked"
+        end
+        replacement = write_independent_copy(plan, digest)
+        batches_to_update.each do |batch|
+          write_manifest(batch.merge("state" => "detached", "keeper_inode" => identity(replacement)))
+        end
+      end
+    rescue SystemCallError
+      raise Error, "The copy operation could not finish. Check the current file and Restore backups before retrying."
+    end
+
     def batches
       return [] unless @root.exist?
 
@@ -119,6 +169,21 @@ module DuplicateAdjudicator
       end.sort_by { |batch| [batch["created_at"], batch["id"]] }.reverse
     rescue SystemCallError
       raise Error, "Manyfold could not list the restore folder."
+    end
+
+    def pending_bytes(batches)
+      batches.sum do |batch|
+        next 0 if %w[restored purged].include?(batch["state"])
+
+        saved = regular_stat(backup_path(batch))
+        if saved && saved.nlink == 1 && identity(saved) == batch["original_inode"]
+          saved.blocks.to_i * 512
+        else
+          0
+        end
+      rescue SystemCallError
+        0
+      end
     end
 
     def read(id)
@@ -138,7 +203,7 @@ module DuplicateAdjudicator
           batch["target_file"].is_a?(String) && valid_inode?(batch["keeper_inode"]) &&
           valid_inode?(batch["original_inode"]) && batch["warnings"].is_a?(Array) &&
           batch["warnings"].all? { |warning| warning.is_a?(Integer) } &&
-          %w[pending linked restored purged].include?(batch["state"])
+          %w[pending linked detached restored purged].include?(batch["state"])
         raise Error, "This restore record is invalid."
       end
       batch
@@ -153,10 +218,10 @@ module DuplicateAdjudicator
 
       live = identity(regular_stat(@mount.join(batch.fetch("target"))))
       saved = identity(regular_stat(backup_path(batch)))
-      return "linked" if live == batch["keeper_inode"] && saved == batch["original_inode"]
+      return batch["state"] == "detached" ? "detached" : "linked" if live == batch["keeper_inode"] && saved == batch["original_inode"]
       return "original_in_place" if live == batch["original_inode"] && saved == batch["original_inode"]
-      return "restored" if live == batch["original_inode"] && !saved && batch["state"] == "linked"
-      return "purged" if live == batch["keeper_inode"] && !saved && batch["state"] == "linked"
+      return "restored" if live == batch["original_inode"] && !saved && %w[linked detached].include?(batch["state"])
+      return "purged" if live == batch["keeper_inode"] && !saved && %w[linked detached].include?(batch["state"])
       return "original_in_place" if live == batch["original_inode"] && !saved
 
       "attention"
@@ -172,7 +237,7 @@ module DuplicateAdjudicator
         state = state(batch)
         return batch if (action == :restore && state == "restored") || (action == :purge && state == "purged")
 
-        unless state == "linked" || (action == :restore && state == "original_in_place")
+        unless %w[linked detached].include?(state) || (action == :restore && state == "original_in_place")
           raise Error, "The paths changed after the operation. The backup was left in place."
         end
 
@@ -213,6 +278,32 @@ module DuplicateAdjudicator
     end
 
     private
+
+    def write_independent_copy(plan, digest)
+      stage = plan.target.dirname.join(".duplicate-adjudicator-#{SecureRandom.uuid}")
+      File.open(stage, File::WRONLY | File::CREAT | File::EXCL | File::NOFOLLOW, 0o600) do |output|
+        File.open(plan.target, READ_FILE) do |input|
+          unless stamp(input.stat) == stamp(plan.stat)
+            raise Error, "The linked file changed while it was being copied."
+          end
+          IO.copy_stream(input, output)
+        end
+        original = plan.stat
+        output.chown(original.uid, original.gid) if output.stat.uid != original.uid || output.stat.gid != original.gid
+        output.chmod(original.mode & 0o7777)
+      end
+      File.utime(plan.stat.atime, plan.stat.mtime, stage)
+      staged = stage.lstat
+      verify!(stage, digest, staged)
+      assert_unchanged!(plan.target, plan.stat)
+      assert_unchanged!(plan.source, plan.stat)
+      File.rename(stage, plan.target)
+      sync_directory(plan.target.dirname)
+      assert_unchanged!(plan.target, staged)
+      staged
+    ensure
+      File.unlink(stage) if stage&.exist?
+    end
 
     def with_lock(create: true)
       make_directory(@root) if create && !@root.exist?

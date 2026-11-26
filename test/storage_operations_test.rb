@@ -159,6 +159,53 @@ class StorageOperationsTest < Minitest::Test
     refute backup.exist?
   end
 
+  def test_a_batch_reuses_the_keeper_and_rejects_a_stale_target
+    third_path = @right_path.dirname.join("Third.stl")
+    third_path.write("same bytes")
+    third = Copy.new(Model.new(@library_b), "Parts/Third.stl", 10, "third")
+    second_plan = @store.plan(@left, @right)
+    third_plan = @store.plan(@left, third)
+    first_id = @store.apply_batch_member(@left, @right, digest: @digest,
+      fingerprint: second_plan.batch_fingerprint, warnings: [])
+    third_path.write("new  bytes")
+    assert_raises(DuplicateAdjudicator::StorageOperations::Error) do
+      @store.apply_batch_member(@left, third, digest: @digest, fingerprint: third_plan.batch_fingerprint, warnings: [])
+    end
+    assert_equal "new  bytes", third_path.read
+    assert_equal @left_path.stat.ino, @right_path.stat.ino
+    assert saved_original(first_id).exist?
+
+    third_path.write("same bytes")
+    third_plan = @store.plan(@left, third)
+    @store.apply_batch_member(@left, third, digest: @digest, fingerprint: third_plan.batch_fingerprint, warnings: [])
+    assert_equal @left_path.stat.ino, third_path.stat.ino
+  end
+
+  def test_detach_after_purge_keeps_bytes_and_other_paths
+    id = apply
+    @store.finish(id, @right, :purge)
+    plan = @store.independent_plan(@left, @right)
+    @store.make_independent(@left, @right, digest: @digest, fingerprint: plan.fingerprint)
+
+    refute_equal @left_path.stat.ino, @right_path.stat.ino
+    assert_equal "same bytes", @right_path.read
+    @right_path.write("new  bytes")
+    assert_equal "same bytes", @left_path.read
+    assert_equal "purged", @store.state(@store.read(id))
+  end
+
+  def test_detaching_with_a_retained_backup_leaves_it_restorable
+    id = apply
+    backup = saved_original(id)
+    original_inode = backup.stat.ino
+    plan = @store.independent_plan(@left, @right)
+    @store.make_independent(@left, @right, digest: @digest, fingerprint: plan.fingerprint)
+    assert_equal "detached", @store.state(@store.read(id))
+    assert_equal backup.stat.blocks * 512, @store.pending_bytes(@store.batches)
+    @store.finish(id, @right, :restore)
+    assert_equal original_inode, @right_path.stat.ino
+  end
+
   private
 
   def apply(plan = @store.plan(@left, @right))

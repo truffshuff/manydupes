@@ -7,6 +7,15 @@
   <p><%= link_to file.model.name, core_routes.model_path(file.model) %></p>
   <p class="da-path"><%= file.model.library.name %> / <%= copy.indexed_path %></p>
 
+  <% collections = @collections_by_model.fetch(file.model_id, []) %>
+  <% if collections.any? %>
+    <ul class="da-badges" aria-label="Collections">
+      <% collections.each do |collection| %>
+        <li class="da-pill"><%= link_to collection.name, core_routes.collection_path(collection) %></li>
+      <% end %>
+    </ul>
+  <% end %>
+
   <% if file.has_render? %>
     <% format = file.attachment_attacher.derivatives[:render].extension.presence || "png" %>
     <%= image_tag native_file_url(file, derivative: "render", format: format),

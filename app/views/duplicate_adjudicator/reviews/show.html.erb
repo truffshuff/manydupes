@@ -1,6 +1,6 @@
 <%= render "assets" %>
 
-<div class="da" data-turbo="false" data-review-namespace="<%= review_namespace %>">
+<div class="da" data-turbo="false" data-review-namespace="<%= review_namespace %>" data-import-url="<%= review_import_url %>" data-import-csrf="<%= form_authenticity_token %>">
   <header class="da-header">
     <h1>Compare duplicate files</h1>
     <%= link_to "Duplicate queue", queue_url %>

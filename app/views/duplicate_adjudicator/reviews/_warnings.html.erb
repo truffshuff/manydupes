@@ -12,10 +12,9 @@
       Manyfold warnings · <%= @open_warnings %> open · <%= @ignored_warnings %> acknowledged<%= " · #{@busy_warnings} in progress" if @busy_warnings.positive? %>
     <% end %>
   </p>
-  <% if @group_copy_progress[:unwarned].any? %>
-    <p class="da-muted">Acknowledgments for copies without a Manyfold warning are saved in this browser.</p>
+  <% if @copy_review_error %>
+    <p class="da-note" role="alert" data-action-result tabindex="-1"><%= @copy_review_error %></p>
   <% end %>
-  <p class="da-note" data-copy-review-error role="status" hidden></p>
 
   <div class="da-actions">
     <% unless SiteSettings.demo_mode_enabled? %>

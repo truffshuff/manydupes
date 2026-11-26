@@ -10,7 +10,13 @@ module DuplicateAdjudicator
     COPIES_PER_PAGE = 24
     SHA512 = /\A[0-9a-f]{128}\z/
 
-    Group = Struct.new(:digest, :count, :model_count, :example, keyword_init: true)
+    SAVINGS = "SUM(model_files.size) - MAX(model_files.size)"
+
+    Group = Struct.new(:digest, :count, :model_count, :savings, :example, keyword_init: true) do
+      def cursor(sort)
+        sort == "savings" ? "#{savings}-#{digest}" : digest
+      end
+    end
     Copy = Struct.new(:id, :public_id, :model_id, :library_id, :path, :filename, :preview, :entrypoint, :support,
       :size, :name, keyword_init: true) do
       def indexed_path
@@ -33,7 +39,7 @@ module DuplicateAdjudicator
       @candidates = @files.without_special.where("model_files.size > 0").where.not(digest: [nil, ""])
     end
 
-    def groups(library_id:, search:, after:, limit: GROUPS_PER_PAGE + 1)
+    def groups(library_id:, search:, after:, sort: nil, limit: GROUPS_PER_PAGE + 1)
       seeds = @candidates
       seeds = seeds.where(models: {library_id: library_id}) if library_id
       if search.present?
@@ -45,14 +51,24 @@ module DuplicateAdjudicator
       end
       candidates = @candidates
       candidates = candidates.where(digest: seeds.select(:digest)) if library_id || search.present?
-      candidates = candidates.where("model_files.digest > ?", after) if after
-      rows = candidates.group("model_files.digest").having("COUNT(*) > 1").order("model_files.digest")
-        .limit(limit).pluck(:digest, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT model_files.model_id)"),
-          Arel.sql("MIN(model_files.id)"))
+      grouped = candidates.group("model_files.digest").having("COUNT(*) > 1")
+      if sort == "savings"
+        if after
+          bytes, digest = after.split("-", 2)
+          grouped = grouped.having("(#{SAVINGS}) < :size OR ((#{SAVINGS}) = :size AND model_files.digest > :digest)",
+            size: bytes.to_i, digest: digest)
+        end
+        grouped = grouped.order(Arel.sql("(#{SAVINGS}) DESC"), "model_files.digest")
+      else
+        grouped = grouped.where("model_files.digest > ?", after) if after
+        grouped = grouped.order("model_files.digest")
+      end
+      rows = grouped.limit(limit).pluck(:digest, Arel.sql("COUNT(*)"), Arel.sql("COUNT(DISTINCT model_files.model_id)"),
+        Arel.sql(SAVINGS), Arel.sql("MIN(model_files.id)"))
       examples = file_records(@files.where(id: rows.map(&:last))).index_by(&:id)
-      rows.filter_map do |digest, count, model_count, id|
+      rows.filter_map do |digest, count, model_count, savings, id|
         example = examples[id]
-        Group.new(digest: digest, count: count, model_count: model_count, example: example) if example
+        Group.new(digest: digest, count: count, model_count: model_count, savings: savings.to_i, example: example) if example
       end
     end
 
@@ -78,7 +94,7 @@ module DuplicateAdjudicator
     end
 
     def records(copies, digest:)
-      file_records(@candidates.where(id: copies.map(&:id), digest: digest)).index_by(&:id)
+      @candidates.where(id: copies.map(&:id), digest: digest).preload(model: [:library, :collections]).index_by(&:id)
     end
 
     def model_file_counts(model_ids)

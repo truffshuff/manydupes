@@ -1,6 +1,6 @@
 <section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>"
     data-copy-progress="<%= @group_copy_progress.to_json %>"
-    <% if @warning_receipt %>data-warning-receipt="<%= @warning_receipt.to_json %>"<% end %>>
+    data-saved-review="<%= @saved_review.to_json %>">
   <div class="da-comparison-heading">
     <p><%= pluralize(@snapshot.copies.size, "indexed copy") %> in <%= pluralize(@snapshot.copies.map(&:model_id).uniq.size, "model") %>
       across <%= pluralize(@snapshot.copies.map(&:library_id).uniq.size, "library") %>.</p>
@@ -20,12 +20,13 @@
     ["#{library.name} / #{copy.indexed_path} (#{copy.name})", copy.public_id]
   end %>
 
-  <%= form_with url: group_url(@digest, library: nil, q: nil, after: nil), method: :get, local: true, class: "da-panel da-filters", data: {inline_form: true} do %>
+  <%= form_with url: group_url(@digest, library: nil, q: nil, after: nil, sort: nil), method: :get, local: true, class: "da-panel da-filters", data: {inline_form: true} do %>
     <%= hidden_field_tag :library, @library.public_id, id: nil if @library %>
     <%= hidden_field_tag :q, @search, id: nil if @search.present? %>
     <%= hidden_field_tag :after, @after, id: nil if @after %>
     <%= hidden_field_tag :copies, @page, id: nil %>
     <%= hidden_field_tag :review, @review_view, id: nil if @review_view %>
+    <%= hidden_field_tag :sort, @sort, id: nil if @sort %>
     <div>
       <%= label_tag "da-left-#{@digest}", "Left copy" %>
       <%= select_tag :left, options_for_select(choices, @left.public_id), id: "da-left-#{@digest}", class: "form-select" %>
@@ -61,30 +62,35 @@
 
   <%= render "warnings" %>
 
-  <section class="da-panel da-decision" data-decision-panel hidden>
-    <h2>Review decision</h2>
-    <p class="da-muted">These decisions are saved in this browser for your account.</p>
-    <form data-decision-form>
-      <div class="da-actions da-decision-inputs">
-        <div>
-          <label for="da-preferred-<%= @digest %>">Preferred copy</label>
-          <select id="da-preferred-<%= @digest %>" data-preferred-copy class="form-select">
-            <option value="">Choose a copy</option>
-            <%= options_for_select(choices) %>
-          </select>
+  <% unless SiteSettings.demo_mode_enabled? %>
+    <section class="da-panel da-decision" data-decision-panel>
+      <h2>Review decision</h2>
+      <%= form_with url: group_action_url("decision"), method: :post, local: true, data: {inline_form: true} do %>
+        <%= hidden_field_tag :fingerprint, @snapshot.fingerprint, id: nil %>
+        <div class="da-actions da-decision-inputs">
+          <div>
+            <label for="da-preferred-<%= @digest %>">Preferred copy</label>
+            <% preferred = @saved_review.dig("decision", "copy") if @saved_review && @saved_review["fingerprint"] == @snapshot.fingerprint %>
+            <%= select_tag :preferred, options_for_select(choices, preferred), include_blank: "Choose a copy",
+              id: "da-preferred-#{@digest}", data: {preferred_copy: true}, class: "form-select" %>
+          </div>
+          <%= button_tag "Save preference", name: "decision", value: "prefer", class: "da-button da-primary" %>
         </div>
-        <button type="submit" class="da-button da-primary">Save preference</button>
-      </div>
-      <div class="da-actions">
-        <button type="button" data-decision="keep" class="da-button">Keep all copies</button>
-        <button type="button" data-decision="reviewed" class="da-button">Mark reviewed</button>
-        <button type="button" data-decision="later" class="da-button">Review later</button>
-        <button type="button" data-clear-decision class="da-button da-quiet" hidden>Clear decision</button>
-      </div>
-    </form>
-    <p data-decision-status role="status"></p>
-  </section>
-  <noscript><p class="da-note">Enable JavaScript to save decisions in this browser.</p></noscript>
+        <div class="da-actions">
+          <%= button_tag "Keep all copies", name: "decision", value: "keep", class: "da-button" %>
+          <%= button_tag "Mark reviewed", name: "decision", value: "reviewed", class: "da-button" %>
+          <%= button_tag "Review later", name: "decision", value: "later", class: "da-button" %>
+          <%= button_tag "Clear decision", name: "decision", value: "clear",
+            class: "da-button da-quiet", data: {clear_decision: true}, hidden: !@saved_review&.dig("decision") %>
+        </div>
+      <% end %>
+      <% if @review_feedback %>
+        <p class="da-note" data-action-result role="status" tabindex="-1"><%= @review_feedback %></p>
+      <% end %>
+      <p data-decision-status role="status"></p>
+    </section>
+
+  <% end %>
 
   <%= render "storage" %>
 
