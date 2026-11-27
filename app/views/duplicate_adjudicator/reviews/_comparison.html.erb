@@ -1,5 +1,5 @@
 <section class="da-comparison" tabindex="-1" data-comparison data-group-digest="<%= @digest %>" data-fingerprint="<%= @snapshot.fingerprint %>" data-review-label="<%= @group_review_label %>"
-    <% unless @link_complete.nil? %>data-link-complete="<%= @link_complete %>"<% end %>
+    <% unless @link_complete.nil? %> data-link-complete="<%= @link_complete %>"<% end %>
     data-copy-progress="<%= @group_copy_progress.to_json %>"
     data-saved-review="<%= @saved_review.to_json %>">
   <div class="da-comparison-heading">

@@ -3,7 +3,7 @@
 <div class="da" data-turbo="false">
   <header class="da-header">
     <h1>Restore backups</h1>
-    <%= link_to "Duplicate queue", queue_url, class: "da-button da-header-action" %>
+    <%= link_to t("manydupes.queue_link"), queue_url, class: "da-button da-header-action" %>
   </header>
   <div class="da-body">
     <% if @backup_error %>

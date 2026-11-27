@@ -37,6 +37,42 @@
   background: var(--da-wash);
 }
 
+.da .da-brand { display: grid; gap: 5px; }
+
+.da .da-brand-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 46px;
+  block-size: 46px;
+  border: 1px solid var(--da-line);
+  border-radius: 12px;
+  color: var(--da-accent);
+  background: var(--da-selected);
+}
+
+.da .da-brand-mark::before,
+.da .da-brand-mark::after {
+  content: "";
+  position: absolute;
+  inline-size: 17px;
+  block-size: 21px;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.da .da-brand-mark::before { transform: translate(-4px, -4px); opacity: 0.55; }
+.da .da-brand-mark::after { transform: translate(4px, 4px); background: var(--da-selected); }
+
+.da .da-brand-mark span {
+  z-index: 1;
+  inline-size: 9px;
+  block-size: 5px;
+  border-inline-start: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: translate(4px, 2px) rotate(-45deg);
+}
+
 .da .da-header p, .da .da-muted { color: var(--da-muted); }
 .da .da-body { padding: 17px 24px 24px; }
 .da .da-panel {

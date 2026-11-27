@@ -13,7 +13,7 @@ module DuplicateAdjudicator
       different_attributes: "The files have different ownership or permissions."
     }.freeze
 
-    Result = Struct.new(:status, :bytes, :source_path, :target_path, :source, :target, keyword_init: true)
+    Result = Struct.new(:status, :bytes, :source_path, :target_path, :source, :target)
 
     def self.call(left, right)
       libraries = [left.model.library, right.model.library]

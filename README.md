@@ -1,12 +1,12 @@
-# Duplicate Adjudicator
+# ManyDupes
 
-Duplicate Adjudicator is a standalone plugin for Manyfold administrators. It compares files that share an indexed SHA-512 checksum, including files with different names or extensions. It targets Manyfold 0.154.4 and subsequent 0.154.x patches. It uses your existing administrator session and needs no additional gems, services, or database migrations.
+ManyDupes is a standalone plugin for Manyfold administrators. It compares files that share an indexed SHA-512 checksum, including files with different names or extensions. It targets Manyfold 0.154.4 and subsequent 0.154.x patches. It uses your existing administrator session and needs no additional gems, services, or database migrations.
 
 ## Install or upgrade
 
-1. From the GitHub release, download the asset named `duplicate_adjudicator.zip`. [GitHub releases](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases)
-2. Sign in as a Manyfold administrator, upload the ZIP in **Settings → Plugins**, and restart Manyfold. Keep the asset filename when upgrading so it replaces the existing plugin.
-3. Open **Duplicates** in the navigation bar or visit `/duplicate_adjudicator/` relative to your Manyfold root.
+1. From the GitHub release, download the asset named `duplicate_adjudicator.zip`. [GitHub releases](https://github.com/truffshuff/manydupes/releases)
+2. Sign in as a Manyfold administrator, upload the ZIP in **Settings → Plugins**, and restart Manyfold. Keep the asset filename when upgrading, including when upgrading from Duplicate Adjudicator, so it replaces the existing plugin and uses the same saved reviews and backups.
+3. Open **ManyDupes** in the navigation bar or visit `/duplicate_adjudicator/` relative to your Manyfold root.
 
 For a manual install, extract the ZIP into your configured plugin directory. The resulting layout is `<plugins>/duplicate_adjudicator/duplicate_adjudicator.gemspec`. Use a persistent, writable plugin directory. The defaults are `/usr/src/app/plugins` for standard Docker images and `/config/plugins` for Solo. Use your configured `PLUGINS_PATH` if you set one. [Manyfold plugin installation guide](https://manyfold.app/sysadmin/plugins)
 
@@ -59,3 +59,18 @@ On a test group, confirm the counts and paths, open the available previews, and 
 To remove the plugin, delete its installed folder and restart Manyfold. Restore any files and reopen any warnings you want to revert before removing the plugin. Review data and retained originals are stored separately from the installed plugin folder.
 
 [Release history](CHANGELOG.md)
+
+## Development checks
+
+GitHub Actions runs the checks on Ruby 3.4. With Ruby and Node.js installed, run:
+
+```sh
+gem install standard:1.57.0 erb_lint:0.9.0 minitest:6.1.0 --no-document
+standardrb
+erb_lint --lint-all
+ruby test/storage_operations_test.rb
+ruby test/review_store_test.rb
+node --check lib/duplicate_adjudicator/review.js
+```
+
+Put new interface text in `config/locales` and access it with Rails I18n. ManyDupes uses Manyfold’s navbar, authentication, and authorization. Its bulk comparison and warnings rely on Manyfold’s indexed files and problem records, so verify them against the target Manyfold version before widening the compatibility constraint. [Manyfold plugin development guide](https://manyfold.app/technology/plugins/plugin_basics.html)

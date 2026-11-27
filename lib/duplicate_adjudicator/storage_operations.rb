@@ -22,8 +22,8 @@ module DuplicateAdjudicator
     ID = /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/
     READ_FILE = File::RDONLY | File::NOFOLLOW | File::NONBLOCK
 
-    Plan = Struct.new(:pair, :source, :target, :fingerprint, :batch_fingerprint, keyword_init: true)
-    IndependentPlan = Struct.new(:source, :target, :fingerprint, :stat, keyword_init: true)
+    Plan = Struct.new(:pair, :source, :target, :fingerprint, :batch_fingerprint)
+    IndependentPlan = Struct.new(:source, :target, :fingerprint, :stat)
 
     attr_reader :root
 
@@ -232,7 +232,7 @@ module DuplicateAdjudicator
 
       live = identity(regular_stat(@mount.join(batch.fetch("target"))))
       saved = identity(regular_stat(backup_path(batch)))
-      return batch["state"] == "detached" ? "detached" : "linked" if live == batch["keeper_inode"] && saved == batch["original_inode"]
+      return (batch["state"] == "detached") ? "detached" : "linked" if live == batch["keeper_inode"] && saved == batch["original_inode"]
       return "original_in_place" if live == batch["original_inode"] && saved == batch["original_inode"]
       return "restored" if live == batch["original_inode"] && !saved && %w[linked detached].include?(batch["state"])
       return "purged" if live == batch["keeper_inode"] && !saved && %w[linked detached].include?(batch["state"])
@@ -251,7 +251,9 @@ module DuplicateAdjudicator
         state = state(batch)
         return batch if (action == :restore && state == "restored") || (action == :purge && state == "purged")
 
-        unless %w[linked detached].include?(state) || (action == :restore && state == "original_in_place")
+        original_in_place = state == "original_in_place"
+        can_finish = %w[linked detached].include?(state) || (action == :restore && original_in_place)
+        unless can_finish
           raise Error, "The paths changed after the operation. The backup was left in place."
         end
 
@@ -262,7 +264,6 @@ module DuplicateAdjudicator
 
         backup = backup_path(batch)
         digest = batch.fetch("digest")
-        original_in_place = state == "original_in_place"
         live_identity = original_in_place ? batch["original_inode"] : batch["keeper_inode"]
         current = verify_current!(live, digest, live_identity)
         saved = verify_current!(backup, digest, batch["original_inode"]) if !original_in_place || backup.exist?
@@ -282,7 +283,7 @@ module DuplicateAdjudicator
           File.unlink(backup)
           sync_directory(backup.dirname)
         end
-        finished = batch.merge("state" => action == :restore ? "restored" : "purged")
+        finished = batch.merge("state" => (action == :restore) ? "restored" : "purged")
         write_manifest(finished)
         finished
       end

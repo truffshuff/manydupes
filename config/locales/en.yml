@@ -1,0 +1,5 @@
+en:
+  manydupes:
+    name: ManyDupes
+    queue_description: Review files that share a checksum in Manyfold’s index.
+    queue_link: ManyDupes queue

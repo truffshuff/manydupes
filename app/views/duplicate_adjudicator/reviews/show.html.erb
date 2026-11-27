@@ -3,7 +3,7 @@
 <div class="da" data-turbo="false" data-review-namespace="<%= review_namespace %>" data-import-url="<%= review_import_url %>" data-import-csrf="<%= form_authenticity_token %>">
   <header class="da-header">
     <h1>Compare duplicate files</h1>
-    <%= link_to "Duplicate queue", queue_url %>
+    <%= link_to t("manydupes.queue_link"), queue_url %>
   </header>
   <div class="da-body">
     <%= render "comparison" %>

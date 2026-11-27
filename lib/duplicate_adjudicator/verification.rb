@@ -21,7 +21,7 @@ module DuplicateAdjudicator
 
       bytes = 0
       digest = Digest::SHA512.new
-      stream_options = library.storage_service == "s3" ? {rewindable: false} : {}
+      stream_options = (library.storage_service == "s3") ? {rewindable: false} : {}
       attachment.open(**stream_options) do |stream|
         while (chunk = stream.read([CHUNK, limit - bytes + 1].min))
           bytes += chunk.bytesize
@@ -29,10 +29,10 @@ module DuplicateAdjudicator
           digest.update(chunk)
         end
       end
-      digest.hexdigest == expected_digest ? :verified : :different
+      (digest.hexdigest == expected_digest) ? :verified : :different
     rescue Errno::ENOENT
       :missing
-    rescue StandardError => error
+    rescue => error
       # Storage adapters have independent error hierarchies and may include private paths in messages.
       Rails.logger.info("Duplicate Adjudicator verification failed (#{error.class})")
       :unavailable

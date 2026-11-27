@@ -41,7 +41,7 @@ module DuplicateAdjudicator
         raise Error unless lock.stat.file? && lock.flock(File::LOCK_EX)
 
         current = read(digest)
-        return if import && current
+        next if import && current
 
         state = current if current && current["fingerprint"] == fingerprint
         state ||= {"fingerprint" => fingerprint, "copies" => []}

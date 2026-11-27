@@ -12,13 +12,13 @@ module DuplicateAdjudicator
 
     SAVINGS = "SUM(model_files.size) - MAX(model_files.size)"
 
-    Group = Struct.new(:digest, :count, :model_count, :savings, :example, keyword_init: true) do
+    Group = Struct.new(:digest, :count, :model_count, :savings, :example) do
       def cursor(sort)
-        sort == "savings" ? "#{savings}-#{digest}" : digest
+        (sort == "savings") ? "#{savings}-#{digest}" : digest
       end
     end
     Copy = Struct.new(:id, :public_id, :model_id, :library_id, :path, :filename, :preview, :entrypoint, :support,
-      :size, :name, keyword_init: true) do
+      :size, :name) do
       def indexed_path
         Pathname.new(File.join(path, filename)).cleanpath.to_s
       end
@@ -28,7 +28,7 @@ module DuplicateAdjudicator
       end
     end
 
-    Snapshot = Struct.new(:copies, :path_counts, :fingerprint, keyword_init: true) do
+    Snapshot = Struct.new(:copies, :path_counts, :fingerprint) do
       def shared_path?(copy)
         path_counts.fetch(copy.storage_key) > 1
       end

@@ -5,6 +5,6 @@ class Components::DuplicateAdjudicator::NavLink < Components::Base
     return unless current_user&.is_administrator?
 
     prefix = Rails.application.config.relative_url_root.to_s.chomp("/")
-    a(href: "#{prefix}/duplicate_adjudicator/", class: "nav-link") { plain "Duplicates" }
+    a(href: "#{prefix}/duplicate_adjudicator/", class: "nav-link") { plain t("manydupes.name") }
   end
 end

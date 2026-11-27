@@ -2,8 +2,11 @@
 
 <div class="da" data-turbo="false" data-queue-view="<%= @review_view || "pending" %>" data-review-namespace="<%= review_namespace %>" data-import-url="<%= review_import_url %>" data-import-csrf="<%= form_authenticity_token %>">
   <header class="da-header">
-    <h1>Duplicate Adjudicator</h1>
-    <p>Review files that share a checksum in Manyfold’s index.</p>
+    <div class="da-brand">
+      <span class="da-brand-mark" aria-hidden="true"><span></span></span>
+      <h1><%= t("manydupes.name") %></h1>
+      <p><%= t("manydupes.queue_description") %></p>
+    </div>
     <div class="da-actions da-header-action">
       <%= link_to "Manyfold duplicate warnings", native_duplicate_warnings_url, class: "da-button" %>
       <%= link_to "Restore backups", backups_url, class: "da-button" %>
@@ -25,7 +28,7 @@
       </div>
       <div>
         <%= label_tag :q, "Filename, folder, or model" %>
-        <%= search_field_tag :q, @search, maxlength: 160, class: "form-control" %>
+        <%= search_field_tag :q, @search, maxlength: 160, autocomplete: "off", class: "form-control" %>
       </div>
       <div>
         <%= label_tag :sort, "Sort by" %>

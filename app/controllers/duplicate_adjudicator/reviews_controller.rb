@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "openssl"
-require "set"
 
 module DuplicateAdjudicator
   class ReviewsController < ::ApplicationController
@@ -26,7 +25,7 @@ module DuplicateAdjudicator
       :queue_links_url, :copy_label, :native_duplicate_warnings_url, :native_warning_status, :page_link_url
 
     def index
-      @title = "Duplicate Adjudicator"
+      @title = t("manydupes.name")
       set_filters
       refill = params[:refill] == "1" && @review_view.nil?
       @queue_entry_after = refill ? queue_cursor(params[:queue_after]) : @after
@@ -146,13 +145,13 @@ module DuplicateAdjudicator
       refresh_link_completion
       results = @batch_results.map do |entry|
         {copy: copy_label(entry.fetch(:copy)), status: entry.fetch(:status), message: entry[:message],
-          backup_url: entry[:id] && backups_url(anchor: "backup-#{entry[:id]}")}
+         backup_url: entry[:id] && backups_url(anchor: "backup-#{entry[:id]}")}
       end
       if @batch_results.any? { |entry| [:linked, :shared, :attention].include?(entry[:status]) }
         save_page_keeper(keeper_copy)
       end
       render json: {results: results, fingerprint: fingerprint, linked: @link_complete,
-        progress: @group_copy_progress, review: saved_review(@digest), notice: @review_feedback}
+                    progress: @group_copy_progress, review: saved_review(@digest), notice: @review_feedback}
     end
 
     def acknowledge_page_warnings
@@ -388,8 +387,8 @@ module DuplicateAdjudicator
         load_saved_review
       end
       if changed.positive? || copy_ids.empty?
-        @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, 'duplicate warning')}." :
-          "Reopened #{helpers.pluralize(changed, 'duplicate warning')}."
+        @warning_feedback = ignore ? "Acknowledged #{helpers.pluralize(changed, "duplicate warning")}." :
+          "Reopened #{helpers.pluralize(changed, "duplicate warning")}."
       end
       render_comparison
     end
@@ -416,7 +415,7 @@ module DuplicateAdjudicator
         if %w[keep reviewed later].include?(kind)
           copy_id ||= state.dig("decision", "copy")
         end
-        state["decision"] = kind == "clear" ? nil : {"type" => kind, "copy" => copy_id}
+        state["decision"] = (kind == "clear") ? nil : {"type" => kind, "copy" => copy_id}
       end
       load_saved_review
       if kind == "prefer" && params[:preview_links] == "1"
@@ -606,7 +605,7 @@ module DuplicateAdjudicator
 
       states = warning_states(group_warnings(snapshot))
       {acknowledged: count, fingerprint: snapshot.fingerprint, linked: queue_group_linked?(snapshot),
-        progress: copy_progress(snapshot, states), review: saved_review(digest)}
+       progress: copy_progress(snapshot, states), review: saved_review(digest)}
     rescue ActiveRecord::ActiveRecordError, Pundit::NotAuthorizedError
       {error: "Manyfold could not acknowledge the warnings for this group."}
     end
@@ -618,7 +617,7 @@ module DuplicateAdjudicator
         review = saved_review(digest)
         preferred = review.dig("decision", "copy") if review && review["fingerprint"] == snapshot.fingerprint
         left = copies.find { |copy| copy.public_id == preferred } || copies.first
-        rule == "left" ? left : copies.find { |copy| copy.id != left.id }
+        (rule == "left") ? left : copies.find { |copy| copy.id != left.id }
       when "folders"
         copies.min_by { |copy| [copy.indexed_path.count("/"), copy.indexed_path.length, copy.id] }
       when "alphabetical"
@@ -648,7 +647,7 @@ module DuplicateAdjudicator
           next({copy: copy, status: :shared, independent: pair.source_path != pair.target_path})
         end
 
-        warning_targets = @snapshot.copies.size == 2 ? [keeper.id, file.id] : [file.id]
+        warning_targets = (@snapshot.copies.size == 2) ? [keeper.id, file.id] : [file.id]
         warning_ids = acknowledge ? planned_warning_ids(warning_targets) : []
         id = storage_operations.apply_batch_member(keeper, file, digest: @digest,
           fingerprint: fingerprints.fetch(file.public_id), warnings: warning_ids)
@@ -686,7 +685,7 @@ module DuplicateAdjudicator
       @storage_operations ||= StorageOperations.new(@libraries)
     end
 
-    def planned_warning_ids(ids = @snapshot.copies.size == 2 ? [@left.id, @right.id] : [@right.id])
+    def planned_warning_ids(ids = (@snapshot.copies.size == 2) ? [@left.id, @right.id] : [@right.id])
       problems = group_warnings.where(problematic_id: ids, ignored: false, in_progress: false).to_a
       problems.each { |problem| authorize problem, :update? }
       problems.map(&:id)
@@ -730,10 +729,10 @@ module DuplicateAdjudicator
       file = policy_scope(::ModelFile).where(model_id: policy_scope(::Model).local
         .where(library_id: @libraries.map(&:id)).reorder(nil).select(:id))
         .find_by(public_id: batch.fetch("target_file"))
-      already_finished = storage_operations.state(batch) == (action == :restore ? "restored" : "purged")
+      already_finished = storage_operations.state(batch) == ((action == :restore) ? "restored" : "purged")
       result = storage_operations.finish(params[:id], file, action)
       flash[:alert] = update_storage_warnings(result["warnings"], ignored: false) if action == :restore && !already_finished
-      flash[:notice] = action == :restore ? "Restored the original file." : "Purged the saved original."
+      flash[:notice] = (action == :restore) ? "Restored the original file." : "Purged the saved original."
       redirect_to backups_url(anchor: "backup-#{params[:id]}"), status: :see_other
     rescue StorageOperations::Error => error
       load_backups
@@ -775,9 +774,9 @@ module DuplicateAdjudicator
       @libraries = policy_scope(::Library).to_a
       @library = @libraries.find { |record| record.public_id == params[:library] } if params[:library].is_a?(String)
       @search = params[:q].is_a?(String) ? params[:q].strip[0, 160] : ""
-      @sort = params[:sort] == "savings" ? "savings" : nil
+      @sort = (params[:sort] == "savings") ? "savings" : nil
       @after = queue_cursor(params[:after])
-      @review_view = params[:review] == "all" ? "all" : nil
+      @review_view = (params[:review] == "all") ? "all" : nil
     end
 
     def inventory
@@ -832,7 +831,7 @@ module DuplicateAdjudicator
       load_warning_counts
       unless inline?
         sizes = @snapshot.copies.map(&:size)
-        cursor = @sort == "savings" ? "#{sizes.sum - sizes.max}-#{@digest}" : @digest
+        cursor = (@sort == "savings") ? "#{sizes.sum - sizes.max}-#{@digest}" : @digest
         @next_group = inventory.groups(library_id: @library&.id, search: @search, after: cursor, sort: @sort, limit: 1).first
       end
       true
