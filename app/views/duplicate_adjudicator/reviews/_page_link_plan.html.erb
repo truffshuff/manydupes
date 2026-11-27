@@ -8,6 +8,15 @@
       Keeper rule <strong><%= @page_link_rule %></strong>.
       Originals are retained under <code><%= @restore_root %></code>.
     </p>
+    <% if @page_warning_token %>
+      <%= form_with url: page_link_url("acknowledge"), method: :post, local: true, class: "da-actions",
+        data: {page_warning_apply: true} do %>
+        <%= hidden_field_tag :plan, @page_warning_token, id: nil %>
+        <% action = @page_warning_count == 1 ? "Acknowledge 1 Manyfold warning" : "Acknowledge all #{@page_warning_count} Manyfold warnings" %>
+        <%= button_tag action, name: "confirm", value: "1", class: "da-button da-primary" %>
+        <span class="da-muted">For <%= pluralize(@page_warning_groups, "group") %> with zero eligible copies.</span>
+      <% end %>
+    <% end %>
     <%= form_with url: page_link_url("apply"), method: :post, local: true, class: "da-storage-form da-page-link-form",
       data: {page_link_apply: true} do %>
       <fieldset class="da-batch-targets" data-page-link-selection>

@@ -1,5 +1,9 @@
 # Duplicate Adjudicator release history
 
+## [0.10.1](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.10.1)
+
+- Acknowledge open Manyfold warnings across the groups with zero eligible targets in a page link plan.
+
 ## [0.10.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.10.0)
 
 - Choose keepers across a page by left copy, right copy, shortest path, fewest folders, or alphabetical path.

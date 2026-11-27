@@ -46,7 +46,7 @@ Retained originals still occupy disk space. **Restore backups** estimates the sp
 
 Use **Bulk links for this page** above the queue. Choose a keeper rule and select **Review page link plan**. **Left copy** and **Right copy** use the pair that opens by default for each group. **Shortest path** uses the full library-relative filename. **Fewest folders** prefers shallower paths, and **Alphabetical path** sorts the full library-relative filename. Ties use index order.
 
-The plan covers the groups currently shown, including their copies in other libraries. Eligible targets start checked. Expand a group to inspect or uncheck individual targets. **Link checked copies and keep backups** processes the reviewed groups in order and lists the result for each copy. The next plan uses the groups currently on the page, including any that have moved forward.
+The plan covers the groups currently shown, including their copies in other libraries. Eligible targets start checked. Expand a group to inspect or uncheck individual targets. **Link checked copies and keep backups** processes the reviewed groups in order and lists the result for each copy. The next plan uses the groups currently on the page, including any that have moved forward. If a group has zero eligible copies and open Manyfold warnings, use **Acknowledge all Manyfold warnings** at the top of the plan. This covers the zero-eligible groups shown in that plan.
 
 ### Make a linked copy independent
 

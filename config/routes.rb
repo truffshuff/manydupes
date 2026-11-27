@@ -7,6 +7,7 @@ DuplicateAdjudicator::Engine.routes.draw do
   get "group/:digest", to: "duplicate_adjudicator/reviews#show", as: :group
   post "page-links/plan", to: "duplicate_adjudicator/reviews#page_link_plan"
   post "page-links/apply", to: "duplicate_adjudicator/reviews#apply_page_links"
+  post "page-links/acknowledge", to: "duplicate_adjudicator/reviews#acknowledge_page_warnings"
   post "queue-links", to: "duplicate_adjudicator/reviews#queue_links"
   post "review-import", to: "duplicate_adjudicator/reviews#import_reviews"
   post "group/:digest/decision", to: "duplicate_adjudicator/reviews#decision"

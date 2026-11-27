@@ -70,7 +70,11 @@ module DuplicateAdjudicator
       @page_link_rule = PAGE_KEEPERS.fetch(rule)
       @restore_root = storage_operations.root
       snapshots = inventory.snapshots(digests.uniq)
-      records = inventory.records(snapshots.values.flat_map(&:copies), digest: snapshots.keys)
+      copies = snapshots.values.flat_map(&:copies)
+      records = inventory.records(copies, digest: snapshots.keys)
+      open_warnings = duplicate_warnings.where(problematic_id: copies.map(&:id), ignored: false, in_progress: false)
+        .pluck(:problematic_id, :id).group_by(&:first)
+      warning_groups = {}
       @page_link_plan = digests.uniq.map do |digest|
         snapshot = snapshots[digest]
         next({digest: digest, problem: "This group no longer has two indexed copies."}) unless snapshot && snapshot.copies.size > 1
@@ -86,7 +90,19 @@ module DuplicateAdjudicator
           storage_verifier.generate({"context" => [current_user.id.to_s, digest, copy.public_id, snapshot.fingerprint],
             "targets" => fingerprints}, purpose: "page-link-copies", expires_in: 30.minutes)
         end
+        if fingerprints.empty?
+          warning_ids = snapshot.copies.flat_map { |item| open_warnings.fetch(item.id, []).map(&:last) }
+          if warning_ids.any?
+            warning_groups[digest] = {"keeper" => copy.public_id, "fingerprint" => snapshot.fingerprint, "warnings" => warning_ids}
+          end
+        end
         {digest: digest, keeper: copy, entries: entries, token: token}
+      end
+      if warning_groups.any?
+        @page_warning_groups = warning_groups.size
+        @page_warning_count = warning_groups.values.sum { |group| group.fetch("warnings").size }
+        @page_warning_token = storage_verifier.generate({"account" => current_user.id.to_s, "groups" => warning_groups},
+          purpose: "acknowledge-page-warnings", expires_in: 30.minutes)
       end
       render partial: "page_link_plan", layout: false
     rescue StorageOperations::Error => error
@@ -137,6 +153,28 @@ module DuplicateAdjudicator
       end
       render json: {results: results, fingerprint: fingerprint, linked: @link_complete,
         progress: @group_copy_progress, review: saved_review(@digest), notice: @review_feedback}
+    end
+
+    def acknowledge_page_warnings
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+
+      plan = storage_verifier.verified(params[:plan].to_s, purpose: "acknowledge-page-warnings")
+      unless params[:confirm] == "1" && plan.is_a?(Hash) && plan["account"] == current_user.id.to_s
+        return render json: {error: "The page plan expired. Review a new plan."}, status: :conflict
+      end
+
+      set_filters
+      groups = plan.fetch("groups")
+      snapshots = inventory.snapshots(groups.keys)
+      records = inventory.records(snapshots.values.flat_map(&:copies), digest: snapshots.keys)
+      outcomes = groups.to_h do |digest, group|
+        snapshot = snapshots[digest]
+        [digest, acknowledge_zero_eligible_group(digest, group, snapshot, records)]
+      end
+      render json: {groups: outcomes}
+    rescue StorageOperations::Error => error
+      render json: {error: error.message}, status: :unprocessable_content
     end
 
     def show
@@ -539,6 +577,38 @@ module DuplicateAdjudicator
       entries.filter_map do |entry|
         [entry.fetch(:copy).public_id, entry.fetch(:plan).batch_fingerprint] if entry[:plan]
       end.to_h
+    end
+
+    def acknowledge_zero_eligible_group(digest, group, snapshot, records)
+      if !snapshot || snapshot.fingerprint != group.fetch("fingerprint")
+        return {error: "The indexed copies changed. Review a new plan."}
+      end
+
+      keeper_copy = snapshot.copies.find { |copy| copy.public_id == group.fetch("keeper") }
+      keeper = records[keeper_copy&.id]
+      return {error: "The keeper is no longer available."} unless keeper&.digest == digest
+
+      targets = snapshot.copies.reject { |copy| copy.id == keeper.id }
+      if batch_preview_entries(targets, keeper: keeper, records: records).any? { |entry| entry[:plan] }
+        return {error: "This group now has eligible copies. Review a new plan."}
+      end
+
+      count = ::ModelFile.transaction do
+        current = inventory.snapshot(digest, lock: true)
+        next if current.fingerprint != snapshot.fingerprint
+
+        warnings = group_warnings(current).where(id: group.fetch("warnings"), ignored: false, in_progress: false).order(:id).lock.to_a
+        warnings.each { |warning| authorize warning, :update? }
+        warnings.each { |warning| warning.update!(ignored: true) }
+        warnings.size
+      end
+      return {error: "The indexed copies changed. Review a new plan."} if count.nil?
+
+      states = warning_states(group_warnings(snapshot))
+      {acknowledged: count, fingerprint: snapshot.fingerprint, linked: queue_group_linked?(snapshot),
+        progress: copy_progress(snapshot, states), review: saved_review(digest)}
+    rescue ActiveRecord::ActiveRecordError, Pundit::NotAuthorizedError
+      {error: "Manyfold could not acknowledge the warnings for this group."}
     end
 
     def page_keeper(digest, snapshot, rule)
