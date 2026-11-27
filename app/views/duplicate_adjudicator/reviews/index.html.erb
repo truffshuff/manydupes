@@ -51,6 +51,21 @@
         <p><%= @after ? "You’ve reached the end of these results." : "No files with duplicate indexed checksums match these filters." %></p>
       </div>
     <% else %>
+      <% unless SiteSettings.demo_mode_enabled? %>
+        <section class="da-panel da-section" data-page-links hidden>
+          <h2>Bulk links for this page</h2>
+          <%= form_with url: page_link_url("plan"), method: :post, local: true, class: "da-actions",
+            data: {page_link_preview: true} do |form| %>
+            <div>
+              <%= form.label :keeper_rule, "Keeper rule" %>
+              <%= form.select :keeper_rule, DuplicateAdjudicator::ReviewsController::PAGE_KEEPERS.map { |value, label| [label, value] } %>
+            </div>
+            <%= form.submit "Review page link plan", class: "da-button da-primary" %>
+          <% end %>
+          <p class="da-muted" data-page-link-status role="status"></p>
+          <div data-page-link-content></div>
+        </section>
+      <% end %>
       <div class="da-queue" aria-label="Duplicate checksum groups" data-review-queue
         data-page-size="<%= DuplicateAdjudicator::Index::GROUPS_PER_PAGE %>" data-next-after="<%= @next_page %>"
         data-page-url="<%= queue_url(after: nil) %>" data-link-check-url="<%= queue_links_url %>"

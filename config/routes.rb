@@ -5,6 +5,8 @@ DuplicateAdjudicator::Engine.routes.draw do
   get "theme.css", to: "duplicate_adjudicator/reviews#theme", defaults: {format: :css}, format: false
   get "review.js", to: "duplicate_adjudicator/reviews#script", defaults: {format: :js}, format: false
   get "group/:digest", to: "duplicate_adjudicator/reviews#show", as: :group
+  post "page-links/plan", to: "duplicate_adjudicator/reviews#page_link_plan"
+  post "page-links/apply", to: "duplicate_adjudicator/reviews#apply_page_links"
   post "queue-links", to: "duplicate_adjudicator/reviews#queue_links"
   post "review-import", to: "duplicate_adjudicator/reviews#import_reviews"
   post "group/:digest/decision", to: "duplicate_adjudicator/reviews#decision"

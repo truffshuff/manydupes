@@ -42,6 +42,12 @@ The plan’s **Acknowledge Manyfold warnings for linked copies** option starts c
 
 Retained originals still occupy disk space. **Restore backups** estimates the space that purging can reclaim using the allocated blocks of originals that are only linked from the backup directory. Treat that total as an upper bound. Snapshots and shared blocks can reduce actual savings.
 
+### Link multiple groups on a page
+
+Use **Bulk links for this page** above the queue. Choose a keeper rule and select **Review page link plan**. **Left copy** and **Right copy** use the pair that opens by default for each group. **Shortest path** uses the full library-relative filename. **Fewest folders** prefers shallower paths, and **Alphabetical path** sorts the full library-relative filename. Ties use index order.
+
+The plan covers the groups currently shown, including their copies in other libraries. Eligible targets start checked. Expand a group to inspect or uncheck individual targets. **Link checked copies and keep backups** processes the reviewed groups in order and lists the result for each copy. The next plan uses the groups currently on the page, including any that have moved forward.
+
 ### Make a linked copy independent
 
 In a hard-link plan or its results, find the linked copy you want to separate and select **Review independent copy**. On confirmation, the plugin uses the current right-hand bytes to create an independent file at the same path and preserves its ownership, mode, and modification time. This requires enough free space for a separate file and works after the original backup has been purged.

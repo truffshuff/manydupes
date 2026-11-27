@@ -237,3 +237,11 @@
 .da .da-batch-targets legend { float: none; margin: 0; width: auto; font: inherit; font-weight: 600; }
 .da :is(.da-batch-targets, .da-batch-results, .da-section code) { overflow-wrap: anywhere; min-inline-size: 0; }
 .da .da-batch-results { padding-inline-start: 20px; }
+
+.da [data-page-link-content] { inline-size: 100%; min-inline-size: 0; }
+.da .da-page-link-form { inline-size: 100%; }
+.da .da-page-link-form fieldset { inline-size: 100%; min-inline-size: 0; }
+.da .da-page-link-group { border-block-start: 1px solid var(--da-line); padding-block: 7px; overflow-wrap: anywhere; }
+.da .da-page-link-group summary { cursor: pointer; color: var(--da-accent); }
+.da .da-page-link-group ul { padding-inline-start: 24px; margin-block-start: 6px; }
+.da .da-page-link-group > p { margin-block-start: 4px; }

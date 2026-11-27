@@ -1,0 +1,46 @@
+<div data-page-link-plan>
+  <% if @page_link_error %>
+    <p class="da-note" role="alert"><%= @page_link_error %></p>
+  <% else %>
+    <% total = @page_link_plan.sum { |group| Array(group[:entries]).count { |entry| entry[:plan] } } %>
+    <p class="da-note">
+      <%= pluralize(total, "eligible copy", "eligible copies") %> across <%= pluralize(@page_link_plan.size, "group") %>.
+      Keeper rule <strong><%= @page_link_rule %></strong>.
+      Originals are retained under <code><%= @restore_root %></code>.
+    </p>
+    <%= form_with url: page_link_url("apply"), method: :post, local: true, class: "da-storage-form da-page-link-form",
+      data: {page_link_apply: true} do %>
+      <fieldset class="da-batch-targets" data-page-link-selection>
+        <legend>Review keepers and targets</legend>
+        <% @page_link_plan.each do |group| %>
+          <% if group[:problem] %>
+            <p><%= group[:problem] %></p>
+            <% next %>
+          <% end %>
+          <details class="da-page-link-group" data-page-link-group="<%= group.fetch(:digest) %>" data-page-link-token="<%= group[:token] %>">
+            <% eligible = group.fetch(:entries).count { |entry| entry[:plan] } %>
+            <summary>Keep <strong><%= copy_label(group.fetch(:keeper)) %></strong> · <%= pluralize(eligible, "eligible copy", "eligible copies") %></summary>
+            <ul>
+              <% group.fetch(:entries).each do |entry| %>
+                <% copy = entry.fetch(:copy) %>
+                <li>
+                  <% if entry[:plan] %>
+                    <label><%= check_box_tag "targets[]", copy.public_id, true, id: nil %><span><%= copy_label(copy) %></span></label>
+                  <% else %>
+                    <%= copy_label(copy) %> · <%= entry[:status] == :shared ? "Already shares the keeper’s file." : entry.fetch(:message) %>
+                  <% end %>
+                </li>
+              <% end %>
+            </ul>
+            <p data-page-link-group-result hidden></p>
+            <ul data-page-link-copy-results hidden></ul>
+          </details>
+        <% end %>
+        <% if total.positive? %>
+          <label><%= check_box_tag :acknowledge, "1", true, id: nil %> Acknowledge applicable Manyfold warnings</label>
+          <%= button_tag "Link checked copies and keep backups", name: "confirm", value: "1", class: "da-button da-primary" %>
+        <% end %>
+      </fieldset>
+    <% end %>
+  <% end %>
+</div>

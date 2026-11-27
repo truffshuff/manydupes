@@ -6,6 +6,13 @@ require "set"
 module DuplicateAdjudicator
   class ReviewsController < ::ApplicationController
     QUEUE_REFILL_SIZE = 96
+    PAGE_KEEPERS = {
+      "shortest" => "Shortest path",
+      "left" => "Left copy",
+      "right" => "Right copy",
+      "folders" => "Fewest folders",
+      "alphabetical" => "Alphabetical path"
+    }.freeze
 
     # This GET serves a fixed script from the plugin package. Verification POSTs use Rails CSRF protection.
     skip_forgery_protection only: :script
@@ -16,7 +23,7 @@ module DuplicateAdjudicator
 
     helper_method :queue_url, :group_url, :verify_url, :asset_url, :core_routes, :roles_for,
       :native_file_url, :review_namespace, :group_action_url, :backups_url, :backup_action_url, :review_import_url,
-      :queue_links_url, :copy_label, :native_duplicate_warnings_url, :native_warning_status
+      :queue_links_url, :copy_label, :native_duplicate_warnings_url, :native_warning_status, :page_link_url
 
     def index
       @title = "Duplicate Adjudicator"
@@ -45,6 +52,91 @@ module DuplicateAdjudicator
         {fingerprint: snapshot.fingerprint, linked: queue_group_linked?(snapshot)}
       end
       render json: statuses
+    end
+
+    def page_link_plan
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+      return head :not_acceptable unless request.format.html?
+
+      digests = params[:digests]
+      rule = params[:keeper_rule]
+      unless digests.is_a?(Array) && digests.size.between?(1, Index::GROUPS_PER_PAGE) &&
+          digests.all? { |digest| checksum(digest) } && PAGE_KEEPERS.key?(rule)
+        return head :bad_request
+      end
+
+      set_filters
+      @page_link_rule = PAGE_KEEPERS.fetch(rule)
+      @restore_root = storage_operations.root
+      snapshots = inventory.snapshots(digests.uniq)
+      records = inventory.records(snapshots.values.flat_map(&:copies), digest: snapshots.keys)
+      @page_link_plan = digests.uniq.map do |digest|
+        snapshot = snapshots[digest]
+        next({digest: digest, problem: "This group no longer has two indexed copies."}) unless snapshot && snapshot.copies.size > 1
+
+        copy = page_keeper(digest, snapshot, rule)
+        keeper = records[copy.id]
+        next({digest: digest, problem: "The keeper changed. Reload the queue."}) unless keeper&.digest == digest
+
+        targets = snapshot.copies.reject { |candidate| candidate.id == copy.id }
+        entries = batch_preview_entries(targets, keeper: keeper, records: records)
+        fingerprints = batch_fingerprints(entries)
+        token = if fingerprints.any?
+          storage_verifier.generate({"context" => [current_user.id.to_s, digest, copy.public_id, snapshot.fingerprint],
+            "targets" => fingerprints}, purpose: "page-link-copies", expires_in: 30.minutes)
+        end
+        {digest: digest, keeper: copy, entries: entries, token: token}
+      end
+      render partial: "page_link_plan", layout: false
+    rescue StorageOperations::Error => error
+      @page_link_error = error.message
+      render partial: "page_link_plan", layout: false
+    end
+
+    def apply_page_links
+      authorize ::Library, :index?
+      return head :forbidden if ::SiteSettings.demo_mode_enabled?
+
+      plan = storage_verifier.verified(params[:plan].to_s, purpose: "page-link-copies")
+      unless params[:confirm] == "1" && plan.is_a?(Hash) && plan["context"].first == current_user.id.to_s
+        return render json: {error: "The page plan expired. Review a new plan."}, status: :conflict
+      end
+
+      _, @digest, keeper_id, fingerprint = plan.fetch("context")
+      fingerprints = plan.fetch("targets")
+      selected = params[:targets]
+      unless selected.is_a?(Array) && selected.any? && selected.size <= fingerprints.size &&
+          selected.all? { |id| fingerprints.key?(id) }
+        return render json: {error: "Choose eligible copies from this plan."}, status: :bad_request
+      end
+
+      set_filters
+      @snapshot = inventory.snapshot(@digest)
+      keeper_copy = @snapshot.copies.find { |copy| copy.public_id == keeper_id }
+      unless keeper_copy && @snapshot.fingerprint == fingerprint
+        return render json: {error: "The indexed copies changed. Review a new plan for this group."}, status: :conflict
+      end
+
+      keeper = inventory.records([keeper_copy], digest: @digest)[keeper_copy.id]
+      unless keeper
+        return render json: {error: "The keeper is no longer available."}, status: :conflict
+      end
+
+      @copy_by_id = @snapshot.copies.index_by(&:id)
+      selected = selected.to_set
+      targets = @snapshot.copies.select { |copy| selected.include?(copy.public_id) }
+      apply_batch_plan(keeper, targets, fingerprints, acknowledge: params[:acknowledge] == "1")
+      refresh_link_completion
+      results = @batch_results.map do |entry|
+        {copy: copy_label(entry.fetch(:copy)), status: entry.fetch(:status), message: entry[:message],
+          backup_url: entry[:id] && backups_url(anchor: "backup-#{entry[:id]}")}
+      end
+      if @batch_results.any? { |entry| [:linked, :shared, :attention].include?(entry[:status]) }
+        save_page_keeper(keeper_copy)
+      end
+      render json: {results: results, fingerprint: fingerprint, linked: @link_complete,
+        progress: @group_copy_progress, review: saved_review(@digest), notice: @review_feedback}
     end
 
     def show
@@ -407,10 +499,26 @@ module DuplicateAdjudicator
       @batch_keeper = @copy_by_id.fetch(keeper.id)
       @batch_whole_group = whole_group
       records = inventory.records(copies, digest: @digest)
+      @batch_preview = batch_preview_entries(copies, keeper: keeper, records: records)
+      if whole_group
+        @link_complete = false
+        refresh_link_completion if @batch_preview.all? { |entry| entry[:status] == :shared }
+      end
+      fingerprints = batch_fingerprints(@batch_preview)
+      return if fingerprints.empty?
+
+      context = whole_group ? group_storage_context(@batch_keeper) : storage_context
+      @batch_token = storage_verifier.generate({"context" => context, "targets" => fingerprints, "group" => whole_group},
+        purpose: "link-copies", expires_in: 15.minutes)
+    rescue StorageOperations::Error => error
+      @storage_error = error.message
+    end
+
+    def batch_preview_entries(copies, keeper:, records:)
       planned_paths = Set.new
-      @batch_preview = copies.map do |copy|
+      copies.map do |copy|
         file = records[copy.id]
-        next({copy: copy, status: :blocked, message: "This copy is no longer in the indexed group."}) unless file
+        next({copy: copy, status: :blocked, message: "This copy is no longer in the indexed group."}) unless file&.digest == keeper.digest
 
         pair = StoragePreview.call(keeper, file)
         if pair.status == :same_file
@@ -425,20 +533,37 @@ module DuplicateAdjudicator
       rescue StorageOperations::Error => error
         {copy: copy, status: :blocked, message: error.message}
       end
-      if whole_group
-        @link_complete = false
-        refresh_link_completion if @batch_preview.all? { |entry| entry[:status] == :shared }
-      end
-      fingerprints = @batch_preview.filter_map do |entry|
+    end
+
+    def batch_fingerprints(entries)
+      entries.filter_map do |entry|
         [entry.fetch(:copy).public_id, entry.fetch(:plan).batch_fingerprint] if entry[:plan]
       end.to_h
-      return if fingerprints.empty?
+    end
 
-      context = whole_group ? group_storage_context(@batch_keeper) : storage_context
-      @batch_token = storage_verifier.generate({"context" => context, "targets" => fingerprints, "group" => whole_group},
-        purpose: "link-copies", expires_in: 15.minutes)
-    rescue StorageOperations::Error => error
-      @storage_error = error.message
+    def page_keeper(digest, snapshot, rule)
+      copies = snapshot.copies
+      case rule
+      when "left", "right"
+        review = saved_review(digest)
+        preferred = review.dig("decision", "copy") if review && review["fingerprint"] == snapshot.fingerprint
+        left = copies.find { |copy| copy.public_id == preferred } || copies.first
+        rule == "left" ? left : copies.find { |copy| copy.id != left.id }
+      when "folders"
+        copies.min_by { |copy| [copy.indexed_path.count("/"), copy.indexed_path.length, copy.id] }
+      when "alphabetical"
+        copies.min_by { |copy| [copy.indexed_path.downcase, copy.id] }
+      else
+        copies.min_by { |copy| [copy.indexed_path.length, copy.id] }
+      end
+    end
+
+    def save_page_keeper(keeper)
+      review_store.update(@digest, @snapshot.fingerprint) do |state|
+        state["decision"] = {"type" => "prefer", "copy" => keeper.public_id}
+      end
+    rescue ReviewStore::Error
+      @review_feedback = "Manyfold could not save the keeper preference."
     end
 
     def apply_batch_plan(keeper, copies, fingerprints, acknowledge:)
@@ -759,6 +884,10 @@ module DuplicateAdjudicator
 
     def queue_url(**options)
       mounted_url("/", **filter_params.merge(options))
+    end
+
+    def page_link_url(action)
+      mounted_url("/page-links/#{action}", **filter_params)
     end
 
     def queue_links_url

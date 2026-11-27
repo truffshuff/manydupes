@@ -1,5 +1,10 @@
 # Duplicate Adjudicator release history
 
+## [0.10.0](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.10.0)
+
+- Choose keepers across a page by left copy, right copy, shortest path, fewest folders, or alphabetical path.
+- Review a page-wide plan with eligible targets selected, then link them with retained originals and individual results.
+
 ## [0.9.4](https://github.com/truffshuff/manyfold-duplicate-adjudicator/releases/tag/v0.9.4)
 
 - Keep checksum groups with active Manyfold duplicate warnings in **Needs review**, including groups already linked or marked reviewed.
